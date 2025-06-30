@@ -87,7 +87,7 @@ THIRD_PARTY_APPS = [
 
 LOCAL_APPS = [
     "kachadigitalbcn.users",
-    "kachadigitalbcn.market",
+    "market",
     # Your stuff: custom apps go here
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps

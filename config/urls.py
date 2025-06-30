@@ -33,7 +33,6 @@ urlpatterns += [
     # API base url
     path("api/", include("config.api_router")),
     # DRF auth token
-    path("api/auth-token/", obtain_auth_token, name="obtain_auth_token"),
     path("api/token/", MarketProximityTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/token/refresh/", MarketProximityTokenRefreshView.as_view(), name="token_refresh"),
     path("api/schema/", SpectacularAPIView.as_view(), name="api-schema"),
