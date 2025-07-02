@@ -1,8 +1,8 @@
 # PostgreSQL
 # ------------------------------------------------------------------------------
 POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
+POSTGRES_PORT=5433
 POSTGRES_DB=kacha-app
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/kacha-app
+DATABASE_URL=postgres://postgres:postgres@localhost:5433/kacha-app
