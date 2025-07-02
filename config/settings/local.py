@@ -13,7 +13,7 @@ SECRET_KEY = env(
     default="ZhNQ5aOV1JZjigrMtVB48aIwNfUoZ8x7nT2evdG3MgfnYNauGKEOsKIDuzspsRis",
 )
 # https://docs.djangoproject.com/en/dev/ref/settings/#allowed-hosts
-ALLOWED_HOSTS = ["localhost", "0.0.0.0", "127.0.0.1"]  # noqa: S104
+ALLOWED_HOSTS = ["localhost", "0.0.0.0", "127.0.0.1", "kachaapp.kachadigitalbcn.com"]  # noqa: S104
 
 # CACHES
 # ------------------------------------------------------------------------------
