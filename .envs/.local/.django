@@ -14,8 +14,8 @@ CELERY_FLOWER_USER=debug
 CELERY_FLOWER_PASSWORD=debug
 
 # Database
-DATABASE_URL=postgres://postgres:123456@localhost:5432/kacha-app
-POSTGRES_HOST=localhost
+DATABASE_URL=postgres://postgres:123456@db:5432/kacha-app
+POSTGRES_HOST=db
 POSTGRES_PORT=5432
 POSTGRES_DB=kacha-app
 POSTGRES_USER=postgres

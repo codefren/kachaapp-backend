@@ -12,3 +12,10 @@ services:
     ports:
       - '8888:8000'
     command: /start
+
+    networks:
+      - optimroute
+
+networks:
+  optimroute:
+    external: true
