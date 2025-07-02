@@ -12,3 +12,11 @@ REDIS_URL=redis://redis:6379/0
 # Flower
 CELERY_FLOWER_USER=debug
 CELERY_FLOWER_PASSWORD=debug
+
+# Database
+DATABASE_URL=postgres://postgres:123456@localhost:5432/kacha-app
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=kacha-app
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=123456

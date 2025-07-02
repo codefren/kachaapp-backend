@@ -1,8 +1,3 @@
-volumes:
-  kachadigitalbcn_local_postgres_data: {}
-  kachadigitalbcn_local_postgres_data_backups: {}
-  kachadigitalbcn_local_redis_data: {}
-
 services:
   django: &django
     build:
@@ -10,73 +5,10 @@ services:
       dockerfile: ./compose/local/django/Dockerfile
     image: kachadigitalbcn_local_django
     container_name: kachadigitalbcn_local_django
-    depends_on:
-      - postgres
-      - redis
-      - mailpit
     volumes:
       - .:/app:z
     env_file:
       - ./.envs/.local/.django
-      - ./.envs/.local/.postgres
     ports:
       - '8888:8000'
     command: /start
-
-  postgres:
-    build:
-      context: .
-      dockerfile: ./compose/production/postgres/Dockerfile
-    image: kachadigitalbcn_production_postgres
-    container_name: kachadigitalbcn_local_postgres
-    volumes:
-      - kachadigitalbcn_local_postgres_data:/var/lib/postgresql/data
-      - kachadigitalbcn_local_postgres_data_backups:/backups
-    ports:
-      - '5433:5433'
-    environment:
-      - POSTGRES_PORT=5433
-    env_file:
-      - ./.envs/.local/.postgres
-
-  mailpit:
-    image: docker.io/axllent/mailpit:latest
-    container_name: kachadigitalbcn_local_mailpit
-    ports:
-      - "8025:8025"
-
-  redis:
-    image: docker.io/redis:6
-    container_name: kachadigitalbcn_local_redis
-    volumes:
-      - kachadigitalbcn_local_redis_data:/data
-
-  celeryworker:
-    <<: *django
-    image: kachadigitalbcn_local_celeryworker
-    container_name: kachadigitalbcn_local_celeryworker
-    depends_on:
-      - redis
-      - postgres
-      - mailpit
-    ports: []
-    command: /start-celeryworker
-
-  celerybeat:
-    <<: *django
-    image: kachadigitalbcn_local_celerybeat
-    container_name: kachadigitalbcn_local_celerybeat
-    depends_on:
-      - redis
-      - postgres
-      - mailpit
-    ports: []
-    command: /start-celerybeat
-
-  flower:
-    <<: *django
-    image: kachadigitalbcn_local_flower
-    container_name: kachadigitalbcn_local_flower
-    ports:
-      - '5555:5555'
-    command: /start-flower
