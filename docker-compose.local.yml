@@ -20,7 +20,7 @@ services:
       - ./.envs/.local/.django
       - ./.envs/.local/.postgres
     ports:
-      - '8080:8000'
+      - '8888:8000'
     command: /start
 
   postgres:
@@ -33,7 +33,9 @@ services:
       - kachadigitalbcn_local_postgres_data:/var/lib/postgresql/data
       - kachadigitalbcn_local_postgres_data_backups:/backups
     ports:
-      - '5433:5432'
+      - '5433:5433'
+    environment:
+      - POSTGRES_PORT=5433
     env_file:
       - ./.envs/.local/.postgres
 
