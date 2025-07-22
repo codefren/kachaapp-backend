@@ -37,3 +37,43 @@ class LoginHistory(models.Model):
 
     def __str__(self):
         return f"{self.user} - {self.market} - {self.event_type} - {self.timestamp}"
+
+
+class Refrigerator(models.Model):
+    """Nevera perteneciente a un market."""
+
+    market = models.ForeignKey(
+        Market, related_name="refrigerators", on_delete=models.CASCADE
+    )
+    name = models.CharField(max_length=80)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("market", "name")
+        verbose_name = "Refrigerator"
+        verbose_name_plural = "Refrigerators"
+
+    def __str__(self):
+        return f"{self.market.name} | {self.name}"
+
+
+class TemperatureRecord(models.Model):
+    """Registro diario de la temperatura de una nevera."""
+
+    refrigerator = models.ForeignKey(
+        Refrigerator,
+        related_name="temperature_records",
+        on_delete=models.CASCADE,
+    )
+    date = models.DateField()
+    temperature = models.FloatField()
+    recorded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("refrigerator", "date")
+        ordering = ["-date"]
+        verbose_name = "Temperature Record"
+        verbose_name_plural = "Temperature Records"
+
+    def __str__(self):
+        return f"{self.refrigerator} - {self.date} : {self.temperature}°C"
