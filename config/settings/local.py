@@ -13,7 +13,17 @@ SECRET_KEY = env(
     default="ZhNQ5aOV1JZjigrMtVB48aIwNfUoZ8x7nT2evdG3MgfnYNauGKEOsKIDuzspsRis",
 )
 # https://docs.djangoproject.com/en/dev/ref/settings/#allowed-hosts
-ALLOWED_HOSTS = ["localhost", "0.0.0.0", "127.0.0.1", "kachaapp.kachadigitalbcn.com"]  # noqa: S104
+ALLOWED_HOSTS = [
+    "localhost",
+    "0.0.0.0",
+    "127.0.0.1",
+    "kachaapp.kachadigitalbcn.com",
+]  # noqa: S104
+
+# Dominios HTTPS confiables para validación CSRF
+CSRF_TRUSTED_ORIGINS = [
+    "https://kachaapp.kachadigitalbcn.com",
+]
 
 # CACHES
 # ------------------------------------------------------------------------------
@@ -83,6 +93,7 @@ CORS_ALLOWED_ORIGINS = env.list(
         "http://127.0.0.1:5173",
         "http://127.0.0.1:8100",
         "http://localhost:8100",
+        "https://kachaapp.kachadigitalbcn.com",
     ],
 )
 CORS_ALLOW_CREDENTIALS = True
