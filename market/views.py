@@ -7,7 +7,7 @@ from django.shortcuts import get_object_or_404
 class MarketLoginHistoryMixin:
     def log_login_history(self, user, market, latitude, longitude, event_type):
         market = get_object_or_404(Market, name=market)
-        if user and market:
+        if user and getattr(user, "is_authenticated", False) and market:
             LoginHistory.objects.create(
                 user=user,
                 market=market,
@@ -23,7 +23,8 @@ class MarketProximityTokenObtainPairView(MarketLoginHistoryMixin, TokenObtainPai
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid(raise_exception=True):
-            market = serializer.data.get('market_name')
+            # Use stored attribute to avoid KeyError on serialization
+            market = getattr(serializer, '_market_name', None)
             latitude = request.data.get('latitude')
             longitude = request.data.get('longitude')
             user = getattr(serializer, "user", None) or request.user
@@ -37,7 +38,8 @@ class MarketProximityTokenRefreshView(MarketLoginHistoryMixin, TokenRefreshView)
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid(raise_exception=True):
-            market = serializer.data.get('market_name')
+            # Use stored attribute to avoid KeyError on serialization
+            market = getattr(serializer, '_market_name', None)
             latitude = request.data.get('latitude')
             longitude = request.data.get('longitude')
             user = getattr(serializer, "user", None) or request.user
