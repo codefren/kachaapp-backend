@@ -53,6 +53,7 @@ def test_refresh_token_success(api_client, user):
     assert refresh_response.status_code == 200
     data = refresh_response.data
     assert "access" in data
+    assert "refresh" in data
     assert data["market_name"] == market.name
     assert "login_time" in data
 
