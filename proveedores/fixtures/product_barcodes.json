@@ -1,0 +1,67 @@
+[
+  {
+    "model": "proveedores.productbarcode",
+    "pk": 1,
+    "fields": {
+      "product": 1,
+      "code": "8412345000012",
+      "type": "EAN13",
+      "is_primary": true,
+      "notes": "Unidad",
+      "created_at": "2025-01-03T00:00:00Z",
+      "updated_at": "2025-01-03T00:00:00Z"
+    }
+  },
+  {
+    "model": "proveedores.productbarcode",
+    "pk": 2,
+    "fields": {
+      "product": 1,
+      "code": "8412345000012-BOX",
+      "type": "CODE128",
+      "is_primary": false,
+      "notes": "Caja 6u",
+      "created_at": "2025-01-03T00:00:00Z",
+      "updated_at": "2025-01-03T00:00:00Z"
+    }
+  },
+  {
+    "model": "proveedores.productbarcode",
+    "pk": 3,
+    "fields": {
+      "product": 2,
+      "code": "7891234000006",
+      "type": "EAN13",
+      "is_primary": true,
+      "notes": "Unidad",
+      "created_at": "2025-01-03T00:00:00Z",
+      "updated_at": "2025-01-03T00:00:00Z"
+    }
+  },
+  {
+    "model": "proveedores.productbarcode",
+    "pk": 4,
+    "fields": {
+      "product": 3,
+      "code": "012345678905",
+      "type": "UPC_A",
+      "is_primary": true,
+      "notes": "Unidad 1L",
+      "created_at": "2025-01-03T00:00:00Z",
+      "updated_at": "2025-01-03T00:00:00Z"
+    }
+  },
+  {
+    "model": "proveedores.productbarcode",
+    "pk": 5,
+    "fields": {
+      "product": 3,
+      "code": "012345678905-BOX",
+      "type": "CODE128",
+      "is_primary": false,
+      "notes": "Caja 12u",
+      "created_at": "2025-01-03T00:00:00Z",
+      "updated_at": "2025-01-03T00:00:00Z"
+    }
+  }
+]

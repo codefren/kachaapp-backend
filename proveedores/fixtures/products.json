@@ -1,0 +1,47 @@
+[
+  {
+    "model": "proveedores.product",
+    "pk": 1,
+    "fields": {
+      "name": "Manzana Golden",
+      "sku": "MNZ-GOLD-001",
+      "stock_units": 120,
+      "units_per_box": 6,
+      "is_favorite": true,
+      "image": null,
+      "created_at": "2025-01-02T00:00:00Z",
+      "updated_at": "2025-01-02T00:00:00Z",
+      "providers": [1, 2]
+    }
+  },
+  {
+    "model": "proveedores.product",
+    "pk": 2,
+    "fields": {
+      "name": "Banana",
+      "sku": "BNN-001",
+      "stock_units": 80,
+      "units_per_box": 12,
+      "is_favorite": false,
+      "image": null,
+      "created_at": "2025-01-02T00:00:00Z",
+      "updated_at": "2025-01-02T00:00:00Z",
+      "providers": [1]
+    }
+  },
+  {
+    "model": "proveedores.product",
+    "pk": 3,
+    "fields": {
+      "name": "Leche Entera",
+      "sku": "LCH-ENT-1L",
+      "stock_units": 45,
+      "units_per_box": 12,
+      "is_favorite": false,
+      "image": null,
+      "created_at": "2025-01-02T00:00:00Z",
+      "updated_at": "2025-01-02T00:00:00Z",
+      "providers": [3]
+    }
+  }
+]
