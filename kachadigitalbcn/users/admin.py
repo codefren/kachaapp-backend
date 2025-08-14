@@ -6,7 +6,7 @@ from django.utils.translation import gettext_lazy as _
 
 from .forms import UserAdminChangeForm
 from .forms import UserAdminCreationForm
-from .models import User
+from .models import User, FtpClient
 
 if settings.DJANGO_ADMIN_FORCE_ALLAUTH:
     # Force the `admin` sign in process to go through the `django-allauth` workflow:
@@ -38,3 +38,10 @@ class UserAdmin(auth_admin.UserAdmin):
     )
     list_display = ["username", "name", "is_superuser"]
     search_fields = ["name"]
+
+
+@admin.register(FtpClient)
+class FtpClientAdmin(admin.ModelAdmin):
+    list_display = ("ftp_username", "user", "home_dir", "is_active", "created_at")
+    search_fields = ("ftp_username", "user__username")
+    list_filter = ("is_active",)
