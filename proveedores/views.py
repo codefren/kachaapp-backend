@@ -80,24 +80,24 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         Prefetch("items", queryset=PurchaseOrderItem.objects.select_related("product"))
     )
     serializer_class = PurchaseOrderSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     http_method_names = ["get", "post", "put", "patch", "head", "options"]
 
 
 class PurchaseOrderItemViewSet(viewsets.ModelViewSet):
     queryset = PurchaseOrderItem.objects.select_related("order", "product").all()
     serializer_class = PurchaseOrderItemSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     http_method_names = ["get", "post", "put", "patch", "head", "options"]
 
 
 class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Product.objects.all().prefetch_related("providers", "barcodes")
     serializer_class = ProductSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
 
 class ProviderViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Provider.objects.all()
     serializer_class = ProviderSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
