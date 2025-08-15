@@ -13,5 +13,5 @@ router.register(r"providers", views.ProviderViewSet, basename="provider")
 
 urlpatterns = [
     path("", views.proveedores_root, name="root"),
-    path("api/", include(router.urls)),
+    path("", include(router.urls)),
 ]
