@@ -26,14 +26,16 @@ class MarketProximityTokenObtainPairView(MarketLoginHistoryMixin, TokenObtainPai
         client_ip = request.META.get('REMOTE_ADDR')
         logger.info("[MarketProximity] POST received for token obtain", extra={"client_ip": client_ip})
 
+        logger.debug(
+            "[MarketProximity] Coordenadas recibidas (obtain)",
+            extra={"lat": request.data.get('latitude'), "lon": request.data.get('longitude')},
+        )
+
         try:
             serializer = self.get_serializer(data=request.data)
             logger.debug("[MarketProximity] Serializer initialized", extra={"has_data": bool(request.data)})
 
-            logger.debug(
-                "[MarketProximity] Coordenadas recibidas (obtain)",
-                extra={"lat": request.data.get('latitude'), "lon": request.data.get('longitude')},
-            )
+
 
             if serializer.is_valid(raise_exception=True):
                 market = getattr(serializer, '_market_name', None)
