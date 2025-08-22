@@ -26,10 +26,7 @@ class MarketProximityTokenObtainPairView(MarketLoginHistoryMixin, TokenObtainPai
     def post(self, request, *args, **kwargs):
         latitude = request.data.get('latitude')
         longitude = request.data.get('longitude')
-        logger.debug(
-            "[MarketProximity] Coordenadas recibidas (obtain)",
-            extra={"lat": latitude, "lon": longitude},
-        )
+        logger.debug("[MarketProximity] Coordenadas recibidas (obtain) lat=%s lon=%s", latitude, longitude)
 
         try:
             serializer = self.get_serializer(data=request.data)
@@ -40,25 +37,25 @@ class MarketProximityTokenObtainPairView(MarketLoginHistoryMixin, TokenObtainPai
                 user = getattr(serializer, "user", None) or request.user
 
                 logger.info(
-                    "[MarketProximity] Login attempt validated",
-                    extra={
-                        "user": getattr(user, 'username', None) or getattr(user, 'id', None),
-                        "market": market,
-                        "lat": latitude,
-                        "lon": longitude,
-                    },
+                    "[MarketProximity] Login attempt validated user=%s market=%s lat=%s lon=%s",
+                    getattr(user, 'username', None) or getattr(user, 'id', None),
+                    market,
+                    latitude,
+                    longitude,
                 )
 
                 self.log_login_history(user, market, latitude, longitude, LoginHistory.LOGIN)
                 logger.debug("[MarketProximity] Login history recorded")
 
             response = super().post(request, *args, **kwargs)
-            logger.info("[MarketProximity] Token issued successfully", extra={"status_code": response.status_code})
+            logger.info("[MarketProximity] Token issued successfully status=%s", response.status_code)
             return response
         except ValidationError as e:
             logger.warning(
-                "[MarketProximity] Validation failed (obtain)",
-                extra={"errors": getattr(e, 'detail', str(e)), "lat": latitude, "lon": longitude},
+                "[MarketProximity] Validation failed (obtain) lat=%s lon=%s errors=%s",
+                latitude,
+                longitude,
+                getattr(e, 'detail', str(e)),
             )
             raise
         except Exception:
@@ -73,10 +70,7 @@ class MarketProximityTokenRefreshView(MarketLoginHistoryMixin, TokenRefreshView)
         latitude = request.data.get('latitude')
         longitude = request.data.get('longitude')
         # Debug explícito de coordenadas
-        logger.debug(
-            "[MarketProximity] Coordenadas recibidas (refresh)",
-            extra={"lat": latitude, "lon": longitude},
-        )
+        logger.debug("[MarketProximity] Coordenadas recibidas (refresh) lat=%s lon=%s", latitude, longitude)
 
         try:
             serializer = self.get_serializer(data=request.data)
@@ -87,12 +81,14 @@ class MarketProximityTokenRefreshView(MarketLoginHistoryMixin, TokenRefreshView)
                 self.log_login_history(user, market, latitude, longitude, LoginHistory.REFRESH)
 
             response = super().post(request, *args, **kwargs)
-            logger.info("[MarketProximity] Token refreshed successfully", extra={"status_code": response.status_code})
+            logger.info("[MarketProximity] Token refreshed successfully status=%s", response.status_code)
             return response
         except ValidationError as e:
             logger.warning(
-                "[MarketProximity] Validation failed (refresh)",
-                extra={"errors": getattr(e, 'detail', str(e)), "lat": latitude, "lon": longitude},
+                "[MarketProximity] Validation failed (refresh) lat=%s lon=%s errors=%s",
+                latitude,
+                longitude,
+                getattr(e, 'detail', str(e)),
             )
             raise
         except Exception:
