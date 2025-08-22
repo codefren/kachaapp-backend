@@ -18,6 +18,7 @@ ALLOWED_HOSTS = [
     "0.0.0.0",
     "127.0.0.1",
     "kachaapp.kachadigitalbcn.com",
+    "142.93.42.100:8888"
 ]  # noqa: S104
 
 # Dominios HTTPS confiables para validación CSRF
@@ -94,6 +95,7 @@ CORS_ALLOWED_ORIGINS = env.list(
         "http://127.0.0.1:8100",
         "http://localhost:8100",
         "https://kachaapp.kachadigitalbcn.com",
+        "142.93.42.100:8888"
     ],
 )
 CORS_ALLOW_CREDENTIALS = True
