@@ -30,18 +30,16 @@ class MarketProximityTokenObtainPairView(MarketLoginHistoryMixin, TokenObtainPai
             serializer = self.get_serializer(data=request.data)
             logger.debug("[MarketProximity] Serializer initialized", extra={"has_data": bool(request.data)})
 
+            logger.debug(
+                "[MarketProximity] Coordenadas recibidas (obtain)",
+                extra={"lat": request.data.get('latitude'), "lon": request.data.get('longitude')},
+            )
+
             if serializer.is_valid(raise_exception=True):
-                # Use stored attribute to avoid KeyError on serialization
                 market = getattr(serializer, '_market_name', None)
                 latitude = request.data.get('latitude')
                 longitude = request.data.get('longitude')
                 user = getattr(serializer, "user", None) or request.user
-
-                # Debug explícito de coordenadas
-                logger.debug(
-                    "[MarketProximity] Coordenadas recibidas (obtain)",
-                    extra={"lat": latitude, "lon": longitude},
-                )
 
                 logger.info(
                     "[MarketProximity] Login attempt validated",
@@ -61,7 +59,6 @@ class MarketProximityTokenObtainPairView(MarketLoginHistoryMixin, TokenObtainPai
             logger.info("[MarketProximity] Token issued successfully", extra={"status_code": response.status_code})
             return response
         except Exception:
-            # Will include stack trace
             logger.exception("[MarketProximity] Error processing token obtain POST")
             raise
 
