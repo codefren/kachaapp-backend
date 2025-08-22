@@ -23,8 +23,6 @@ class MarketProximityTokenObtainPairView(MarketLoginHistoryMixin, TokenObtainPai
     serializer_class = MarketProximityTokenObtainPairSerializer
 
     def post(self, request, *args, **kwargs):
-        client_ip = request.META.get('REMOTE_ADDR')
-        logger.info("[MarketProximity] POST received for token obtain", extra={"client_ip": client_ip})
 
         logger.debug(
             "[MarketProximity] Coordenadas recibidas (obtain)",
@@ -34,8 +32,6 @@ class MarketProximityTokenObtainPairView(MarketLoginHistoryMixin, TokenObtainPai
         try:
             serializer = self.get_serializer(data=request.data)
             logger.debug("[MarketProximity] Serializer initialized", extra={"has_data": bool(request.data)})
-
-
 
             if serializer.is_valid(raise_exception=True):
                 market = getattr(serializer, '_market_name', None)
