@@ -95,7 +95,7 @@ CORS_ALLOWED_ORIGINS = env.list(
         "http://127.0.0.1:8100",
         "http://localhost:8100",
         "https://kachaapp.kachadigitalbcn.com",
-        "142.93.42.100:8888"
+        "http://142.93.42.100:8888"
     ],
 )
 CORS_ALLOW_CREDENTIALS = True
