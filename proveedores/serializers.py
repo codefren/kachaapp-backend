@@ -69,7 +69,6 @@ class ProductSerializer(serializers.ModelSerializer):
             "sku",
             "stock_units",
             "units_per_box",
-            "is_favorite",
             "image",
             "providers",
             "barcodes",

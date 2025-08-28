@@ -1,9 +1,10 @@
 from django.contrib.auth import get_user_model
-from django.urls import reverse
+from django.core.files.uploadedfile import SimpleUploadedFile
+from urllib.parse import urlparse
 from rest_framework.test import APITestCase
 from rest_framework import status
 
-from proveedores.models import Provider, Product, PurchaseOrder, PurchaseOrderItem, ProductFavorite
+from proveedores.models import Provider, Product, PurchaseOrder, PurchaseOrderItem, ProductFavorite, ProductBarcode
 
 
 class ProveedoresAPITests(APITestCase):
@@ -131,3 +132,56 @@ class ProveedoresAPITests(APITestCase):
         ids = {item.get("id") for item in data}
         self.assertIn(self.product1.id, ids)
         self.assertNotIn(self.product2.id, ids)
+
+    def test_product_image_absolute_https_url(self):
+        # Crear y asociar una imagen mínima (GIF de 1x1) al producto1
+        gif_bytes = (
+            b"GIF89a"  # header
+            b"\x01\x00\x01\x00"  # width=1, height=1
+            b"\x80\x00\x00"  # GCT follows for 1 color
+            b"\x00\x00\x00"  # black
+            b"\x2C\x00\x00\x00\x00\x01\x01\x00\x00"  # image descriptor
+            b"\x02\x02\x44\x01\x00"  # image data
+            b"\x3B"  # trailer
+        )
+        upload = SimpleUploadedFile("pixel.gif", gif_bytes, content_type="image/gif")
+        self.product1.image.save("pixel.gif", upload, save=True)
+
+        # Detalle del producto para ver el serializer
+        detail_url = f"/api/proveedores/products/{self.product1.id}/"
+        res = self.client.get(detail_url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        img_url = res.data.get("image")
+        self.assertIsNotNone(img_url)
+        # Debe ser absoluta y https; y apuntar al path de products
+        self.assertTrue(img_url.startswith("https://"))
+        parsed = urlparse(img_url)
+        self.assertTrue(parsed.netloc)
+        self.assertTrue(parsed.path.startswith("/products/"))
+        self.assertTrue(parsed.path.endswith(".gif"))
+
+        # Para producto sin imagen debe venir null
+        detail_url2 = f"/api/proveedores/products/{self.product2.id}/"
+        res2 = self.client.get(detail_url2)
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertIsNone(res2.data.get("image"))
+
+    def test_filter_products_by_barcode(self):
+        # Crear barcodes para ambos productos
+        bc1 = ProductBarcode.objects.create(product=self.product1, code="CODE-111", type=ProductBarcode.BarcodeType.EAN13)
+
+        # Filtrar por barcode de product1
+        url = f"/api/proveedores/products/?barcode={bc1.code}"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        data = res.data if isinstance(res.data, list) else res.data.get("results", [])
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["id"], self.product1.id)
+
+    def test_filter_products_by_barcode_no_match(self):
+        # Sin barcodes o con código inexistente
+        url = "/api/proveedores/products/?barcode=NOT-EXISTS"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        data = res.data if isinstance(res.data, list) else res.data.get("results", [])
+        self.assertEqual(len(data), 0)

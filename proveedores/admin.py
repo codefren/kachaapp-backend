@@ -58,9 +58,9 @@ class HasPrimaryBarcodeFilter(admin.SimpleListFilter):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "sku", "stock_units", "units_per_box", "is_favorite")
+    list_display = ("id", "name", "sku", "stock_units", "units_per_box")
     search_fields = ("name", "sku", "providers__name", "barcodes__code")
-    list_filter = ("providers", "is_favorite", HasBarcodeFilter, HasPrimaryBarcodeFilter)
+    list_filter = ("providers", HasBarcodeFilter, HasPrimaryBarcodeFilter)
     ordering = ("name",)
     filter_horizontal = ("providers",)
     inlines = [ProductBarcodeInline]
@@ -72,7 +72,6 @@ class ProductAdmin(admin.ModelAdmin):
         "providers",
         "stock_units",
         "units_per_box",
-        "is_favorite",
         "image",
         "image_preview",
     )

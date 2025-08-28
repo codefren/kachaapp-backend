@@ -93,16 +93,25 @@ class PurchaseOrderItemViewSet(viewsets.ModelViewSet):
 
 
 class ProductViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = (
-        Product.objects.all()
-        .prefetch_related(
-            "providers",
-            "barcodes",
-            "favorites",
-        )
-    )
     serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        qs = (
+            Product.objects.all()
+            .prefetch_related(
+                "providers",
+                "barcodes",
+                "favorites",
+            )
+        )
+        # Filtrar por código de barras exacto si se provee
+        request = getattr(self, 'request', None)
+        if request is not None:
+            code = request.query_params.get("barcode")
+            if code:
+                qs = qs.filter(barcodes__code=code)
+        return qs.distinct()
 
     @action(detail=True, methods=["post"], url_path="favorite")
     def favorite(self, request, pk=None):

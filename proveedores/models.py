@@ -55,7 +55,6 @@ class Product(models.Model):
     units_per_box = models.PositiveIntegerField(
         default=1, help_text="Units per box (wholesale)"
     )
-    is_favorite = models.BooleanField(default=False)
     image = models.ImageField(upload_to="products/", blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
