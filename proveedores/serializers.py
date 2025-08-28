@@ -59,6 +59,7 @@ class ProductSerializer(serializers.ModelSerializer):
     providers = ProviderMiniSerializer(many=True, read_only=True)
     barcodes = ProductBarcodeSerializer(many=True, read_only=True)
     current_user_favorite = serializers.SerializerMethodField()
+    image = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -85,6 +86,23 @@ class ProductSerializer(serializers.ModelSerializer):
             return obj.favorites.filter(user_id=request.user.id).exists()
         except Exception:
             return False
+
+    def get_image(self, obj):
+        image_field = getattr(obj, "image", None)
+        if not image_field:
+            return None
+        try:
+            url = image_field.url
+        except Exception:
+            return None
+        request = self.context.get("request")
+        if request is not None:
+            abs_url = request.build_absolute_uri(url)
+        else:
+            abs_url = url
+        if abs_url.startswith("http://"):
+            abs_url = "https://" + abs_url[len("http://"):]
+        return abs_url
 
 
 class PurchaseOrderSerializer(serializers.ModelSerializer):
