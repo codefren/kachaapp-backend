@@ -18,6 +18,31 @@ class Provider(models.Model):
         return self.name
 
 
+class ProductFavorite(models.Model):
+    """Relación de favoritos entre un usuario y un producto (por usuario)."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="product_favorites"
+    )
+    product = models.ForeignKey(
+        'Product', on_delete=models.CASCADE, related_name="favorites"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("user", "product")
+        verbose_name = "Product favorite"
+        verbose_name_plural = "Product favorites"
+        indexes = [
+            models.Index(fields=["user", "product"], name="idx_fav_user_product"),
+            models.Index(fields=["product"], name="idx_fav_product"),
+        ]
+
+    def __str__(self):
+        return f"{self.user} - {self.product}"
+
+
 class Product(models.Model):
     """Producto suministrado por uno o varios proveedores."""
 

@@ -1,6 +1,12 @@
 from rest_framework import serializers
 
-from .models import PurchaseOrder, PurchaseOrderItem, Product, Provider, ProductBarcode
+from .models import (
+    PurchaseOrder,
+    PurchaseOrderItem,
+    Product,
+    Provider,
+    ProductBarcode,
+)
 
 
 class PurchaseOrderItemSerializer(serializers.ModelSerializer):
@@ -52,6 +58,7 @@ class ProviderMiniSerializer(serializers.ModelSerializer):
 class ProductSerializer(serializers.ModelSerializer):
     providers = ProviderMiniSerializer(many=True, read_only=True)
     barcodes = ProductBarcodeSerializer(many=True, read_only=True)
+    current_user_favorite = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -65,9 +72,19 @@ class ProductSerializer(serializers.ModelSerializer):
             "image",
             "providers",
             "barcodes",
+            "current_user_favorite",
             "created_at",
             "updated_at",
         )
+
+    def get_current_user_favorite(self, obj):
+        request = self.context.get("request")
+        if request is None or request.user.is_anonymous:
+            return False
+        try:
+            return obj.favorites.filter(user_id=request.user.id).exists()
+        except Exception:
+            return False
 
 
 class PurchaseOrderSerializer(serializers.ModelSerializer):

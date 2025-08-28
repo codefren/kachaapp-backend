@@ -1,13 +1,14 @@
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework import viewsets, permissions
+from rest_framework import viewsets, permissions, status
+from rest_framework.decorators import action
 from django.db.models import Prefetch
 
 from django.conf import settings
 from ftplib import FTP
 import io
 import json
-from .models import Product, Provider, PurchaseOrder, PurchaseOrderItem
+from .models import Product, Provider, PurchaseOrder, PurchaseOrderItem, ProductFavorite
 from .serializers import (
     PurchaseOrderSerializer,
     PurchaseOrderItemSerializer,
@@ -92,9 +93,38 @@ class PurchaseOrderItemViewSet(viewsets.ModelViewSet):
 
 
 class ProductViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Product.objects.all().prefetch_related("providers", "barcodes")
+    queryset = (
+        Product.objects.all()
+        .prefetch_related(
+            "providers",
+            "barcodes",
+            "favorites",
+        )
+    )
     serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    @action(detail=True, methods=["post"], url_path="favorite")
+    def favorite(self, request, pk=None):
+        product = self.get_object()
+        ProductFavorite.objects.get_or_create(user=request.user, product=product)
+        return Response({"detail": "Product added to favorites."}, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="unfavorite")
+    def unfavorite(self, request, pk=None):
+        product = self.get_object()
+        ProductFavorite.objects.filter(user=request.user, product=product).delete()
+        return Response({"detail": "Product removed from favorites."}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["get"], url_path="my-favorites")
+    def my_favorites(self, request):
+        qs = self.get_queryset().filter(favorites__user=request.user)
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
 
 
 class ProviderViewSet(viewsets.ReadOnlyModelViewSet):
