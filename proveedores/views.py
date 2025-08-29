@@ -111,6 +111,10 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
             code = request.query_params.get("barcode")
             if code:
                 qs = qs.filter(barcodes__code=code)
+            # Búsqueda por nombre (icontains). También acepta alias 'q'.
+            name_q = request.query_params.get("name") or request.query_params.get("q")
+            if name_q:
+                qs = qs.filter(name__icontains=name_q)
         return qs.distinct()
 
     @action(detail=True, methods=["post"], url_path="favorite")
