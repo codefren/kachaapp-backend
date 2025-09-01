@@ -52,8 +52,8 @@ class ProveedoresAPITests(APITestCase):
             "status": "PLACED",
             "notes": "Orden de prueba",
             "items": [
-                {"product": self.product1.id, "quantity_units": 10, "unit_price": "1.50"},
-                {"product": self.product2.id, "quantity_units": 5, "unit_price": "3.00"},
+                {"product": self.product1.id, "quantity_units": 10, "unit_type": "units"},
+                {"product": self.product2.id, "quantity_units": 5, "unit_type": "boxes"},
             ],
         }
         res = self.client.post(url, data=payload, format="json")

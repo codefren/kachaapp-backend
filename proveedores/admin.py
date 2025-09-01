@@ -129,3 +129,26 @@ class PurchaseOrderAdmin(admin.ModelAdmin):
     def mark_as_canceled(self, request, queryset):
         updated = queryset.update(status="CANCELED")
         self.message_user(request, f"{updated} orders marked as Canceled")
+
+
+@admin.register(PurchaseOrderItem)
+class PurchaseOrderItemAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "order",
+        "product",
+        "quantity_units",
+        "unit_price",
+        "subtotal",
+        "created_at",
+    )
+    list_filter = ("order", "product", "created_at")
+    search_fields = (
+        "product__name",
+        "product__sku",
+        "order__provider__name",
+        "order__ordered_by__username",
+    )
+    autocomplete_fields = ("order", "product")
+    ordering = ("-created_at",)
+    list_select_related = ("order", "product")
