@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from django.db.models import Prefetch
+from django.utils import timezone
 
 from django.conf import settings
 from ftplib import FTP
@@ -83,6 +84,19 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     serializer_class = PurchaseOrderSerializer
     permission_classes = [permissions.IsAuthenticated]
     http_method_names = ["get", "post", "put", "patch", "head", "options"]
+
+    @action(detail=False, methods=["get"], url_path="has-ordered-today")
+    def has_ordered_today(self, request):
+        """Retorna si el usuario actual ha creado al menos una orden hoy.
+
+        Respuesta: {"has_ordered_today": true|false}
+        """
+        today = timezone.now().date()
+        has_order = PurchaseOrder.objects.filter(
+            ordered_by=request.user,
+            created_at__date=today,
+        ).exists()
+        return Response({"has_ordered_today": has_order})
 
 
 class PurchaseOrderItemViewSet(viewsets.ModelViewSet):
