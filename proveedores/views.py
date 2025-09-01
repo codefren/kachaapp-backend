@@ -4,6 +4,7 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from django.db.models import Prefetch
 from django.utils import timezone
+import datetime
 
 from django.conf import settings
 from ftplib import FTP
@@ -97,6 +98,33 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
             created_at__date=today,
         ).exists()
         return Response({"has_ordered_today": has_order})
+
+    @action(detail=False, methods=["get"], url_path="by-day")
+    def by_day(self, request):
+        """Lista órdenes por día exacto usando ?date=YYYY-MM-DD.
+
+        Si no existen órdenes para el día, devuelve un mensaje en lugar de una lista vacía.
+        """
+        date_str = request.query_params.get("date")
+        if not date_str:
+            return Response({"detail": "El parámetro 'date' es requerido."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            d = datetime.date.fromisoformat(date_str)
+        except ValueError:
+            return Response({"detail": "El parámetro 'date' no tiene el formato correcto (YYYY-MM-DD)."}, status=status.HTTP_400_BAD_REQUEST)
+
+        queryset = self.filter_queryset(
+            self.get_queryset().filter(created_at__date=d).order_by("-created_at")
+        )
+
+        # Si no hay ninguna orden para ese día
+        if not queryset.exists():
+            return Response({"detail": "No existen órdenes para el día seleccionado."}, status=status.HTTP_200_OK)
+
+        # Tomar la más reciente y devolver un único objeto
+        obj = queryset.first()
+        serializer = self.get_serializer(obj)
+        return Response(serializer.data)
 
 
 class PurchaseOrderItemViewSet(viewsets.ModelViewSet):
