@@ -12,6 +12,9 @@ from .models import (
 class PurchaseOrderItemSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)
     subtotal = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    # Permitir especificar el tipo de unidad al crear: 'units' o 'boxes'.
+    # Es de solo escritura; el modelo almacena siempre en unidades.
+    unit_type = serializers.ChoiceField(choices=["units", "boxes"], required=False, write_only=True)
 
     class Meta:
         model = PurchaseOrderItem
@@ -20,6 +23,7 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
             "product",
             "product_name",
             "quantity_units",
+            "unit_type",
             "unit_price",
             "subtotal",
             "notes",
@@ -60,6 +64,8 @@ class ProductSerializer(serializers.ModelSerializer):
     barcodes = ProductBarcodeSerializer(many=True, read_only=True)
     current_user_favorite = serializers.SerializerMethodField()
     image = serializers.SerializerMethodField()
+    amount_units = serializers.IntegerField(read_only=True)
+    amount_boxes = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Product
@@ -69,6 +75,8 @@ class ProductSerializer(serializers.ModelSerializer):
             "sku",
             "stock_units",
             "units_per_box",
+            "amount_units",
+            "amount_boxes",
             "image",
             "providers",
             "barcodes",
@@ -129,7 +137,8 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         items_data = validated_data.pop("items", [])
         order = PurchaseOrder.objects.create(**validated_data)
         for item in items_data:
-            PurchaseOrderItem.objects.create(order=order, **item)
+            normalized = self._normalize_item(item)
+            PurchaseOrderItem.objects.create(order=order, **normalized)
         return order
 
     def update(self, instance, validated_data):
@@ -141,5 +150,33 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             # Simple strategy: clear and recreate
             instance.items.all().delete()
             for item in items_data:
-                PurchaseOrderItem.objects.create(order=instance, **item)
+                normalized = self._normalize_item(item)
+                PurchaseOrderItem.objects.create(order=instance, **normalized)
         return instance
+
+    def _normalize_item(self, item: dict) -> dict:
+        """Convierte la entrada del ítem a unidades del modelo.
+
+        - Si unit_type == 'boxes', multiplica quantity_units por units_per_box del producto.
+        - Elimina la clave 'unit_type' para que no falle el create() del modelo.
+        - Si no viene unit_type, se asume 'units'.
+        """
+        data = dict(item)  # copiar para no mutar el argumento original
+        unit_type = data.pop("unit_type", "units")
+        # Asegurar que quantity_units esté presente
+        qty = int(data.get("quantity_units", 0) or 0)
+        if unit_type == "boxes":
+            # Necesitamos conocer units_per_box del producto
+            product_ref = data.get("product")
+            if product_ref is None:
+                return data  # dejar que la validación del modelo falle por falta de producto
+            try:
+                if isinstance(product_ref, Product):
+                    product = product_ref
+                else:
+                    product = Product.objects.only("id", "units_per_box").get(pk=product_ref)
+                qty = qty * (product.units_per_box or 1)
+            except Product.DoesNotExist:
+                pass  # dejar que falle más adelante en validaciones
+        data["quantity_units"] = qty
+        return data

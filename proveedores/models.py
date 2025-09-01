@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.core.exceptions import ValidationError
 
 
 class Provider(models.Model):
@@ -172,6 +173,21 @@ class PurchaseOrderItem(models.Model):
         indexes = [
             models.Index(fields=["order"], name="idx_poi_order"),
             models.Index(fields=["product"], name="idx_poi_product"),
+            models.Index(fields=["order", "product"], name="idx_poi_order_product"),
+        ]
+        constraints = [
+            # quantity_units > 0
+            models.CheckConstraint(
+                check=models.Q(quantity_units__gt=0), name="chk_poi_qty_gt_0"
+            ),
+            # unit_price >= 0
+            models.CheckConstraint(
+                check=models.Q(unit_price__gte=0), name="chk_poi_unit_price_gte_0"
+            ),
+            # Evitar duplicados del mismo producto en la misma orden
+            models.UniqueConstraint(
+                fields=["order", "product"], name="uq_poi_order_product"
+            ),
         ]
 
     def __str__(self):
@@ -180,3 +196,28 @@ class PurchaseOrderItem(models.Model):
     @property
     def subtotal(self):
         return self.quantity_units * self.unit_price
+
+    def clean(self):
+        # Validaciones de negocio adicionales
+        if self.order and self.order.status == PurchaseOrder.Status.RECEIVED:
+            # No permitir crear o modificar ítems si la orden está recibida
+            raise ValidationError(
+                {"order": "La orden está en estado RECEIVED. No se pueden crear ni modificar ítems."}
+            )
+        super().clean()
+
+    def save(self, *args, **kwargs):
+        # Ejecutar validaciones (incluye clean() y constraints a nivel de modelo)
+        self.full_clean()
+        # Si el objeto ya existe, asegurar que su orden no esté RECEIVED
+        if self.pk:
+            original = PurchaseOrderItem.objects.filter(pk=self.pk).select_related("order").first()
+            if original and original.order and original.order.status == PurchaseOrder.Status.RECEIVED:
+                raise ValidationError("No se pueden modificar ítems de una orden en estado RECEIVED.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, using=None, keep_parents=False):
+        # Bloquear eliminación si la orden está recibida
+        if self.order and self.order.status == PurchaseOrder.Status.RECEIVED:
+            raise ValidationError("No se pueden eliminar ítems de una orden en estado RECEIVED.")
+        return super().delete(using=using, keep_parents=keep_parents)
