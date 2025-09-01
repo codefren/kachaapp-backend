@@ -255,3 +255,145 @@ class ProveedoresAPITests(APITestCase):
         res2 = self.client.get(url)
         self.assertEqual(res2.status_code, status.HTTP_200_OK)
         self.assertTrue(res2.data.get("has_ordered_today"))
+
+    def test_filter_purchase_orders_by_date(self):
+        # Crear 2 órdenes
+        url = "/api/proveedores/purchase-orders/"
+        payload1 = {
+            "provider": self.provider.id,
+            "ordered_by": self.user.id,
+            "status": "PLACED",
+            "items": [
+                {"product": self.product1.id, "quantity_units": 1, "unit_type": "units"},
+            ],
+        }
+        res1 = self.client.post(url, data=payload1, format="json")
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+
+        payload2 = {
+            "provider": self.provider.id,
+            "ordered_by": self.user.id,
+            "status": "PLACED",
+            "items": [
+                {"product": self.product2.id, "quantity_units": 1, "unit_type": "units"},
+            ],
+        }
+        res2 = self.client.post(url, data=payload2, format="json")
+        self.assertEqual(res2.status_code, status.HTTP_201_CREATED)
+
+        # Mover la segunda orden a "ayer" modificando created_at
+        from django.utils import timezone
+        from datetime import timedelta
+        po2_id = res2.data["id"]
+        yesterday = timezone.now() - timedelta(days=1)
+        PurchaseOrder.objects.filter(id=po2_id).update(created_at=yesterday)
+
+        # Consultar por hoy con la acción by-day: debe devolver un objeto (la orden de hoy)
+        today_str = timezone.now().date().isoformat()
+        res_today = self.client.get(f"/api/proveedores/purchase-orders/by-day/?date={today_str}")
+        self.assertEqual(res_today.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(res_today.data, dict)
+
+        # Consultar por ayer con la acción by-day: debe devolver un objeto (la orden movida a ayer)
+        yesterday_str = (timezone.now() - timedelta(days=1)).date().isoformat()
+        res_yest = self.client.get(f"/api/proveedores/purchase-orders/by-day/?date={yesterday_str}")
+        self.assertEqual(res_yest.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(res_yest.data, dict)
+
+    def test_purchase_order_queryset_no_date_returns_all(self):
+        # Crear 2 órdenes hoy
+        url = "/api/proveedores/purchase-orders/"
+        for _ in range(2):
+            payload = {
+                "provider": self.provider.id,
+                "ordered_by": self.user.id,
+                "status": "PLACED",
+                "items": [
+                    {"product": self.product1.id, "quantity_units": 1, "unit_type": "units"},
+                ],
+            }
+            res = self.client.post(url, data=payload, format="json")
+            self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        # Sin parámetro date debe devolver todas
+        res_list = self.client.get(url)
+        self.assertEqual(res_list.status_code, status.HTTP_200_OK)
+        data = res_list.data if isinstance(res_list.data, list) else res_list.data.get("results", [])
+        self.assertEqual(len(data), 2)
+
+    # --- Tests para la acción by-day ---
+    def test_by_day_no_results_returns_message(self):
+        from django.utils import timezone
+        from datetime import timedelta
+        future_day = (timezone.now() + timedelta(days=15)).date().isoformat()
+        res = self.client.get(f"/api/proveedores/purchase-orders/by-day/?date={future_day}")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(res.data, dict)
+        self.assertEqual(res.data.get("detail"), "No existen órdenes para el día seleccionado.")
+
+    def test_by_day_missing_date_returns_400(self):
+        res = self.client.get("/api/proveedores/purchase-orders/by-day/")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", res.data)
+
+    def test_by_day_invalid_date_returns_400(self):
+        res = self.client.get("/api/proveedores/purchase-orders/by-day/?date=2025-13-40")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", res.data)
+
+    def test_by_day_with_result_returns_single_object(self):
+        # Crear una orden hoy
+        url = "/api/proveedores/purchase-orders/"
+        payload = {
+            "provider": self.provider.id,
+            "ordered_by": self.user.id,
+            "status": "PLACED",
+            "items": [
+                {"product": self.product1.id, "quantity_units": 2, "unit_type": "units"},
+            ],
+        }
+        res_create = self.client.post(url, data=payload, format="json")
+        self.assertEqual(res_create.status_code, status.HTTP_201_CREATED)
+
+        from django.utils import timezone
+        day = timezone.now().date().isoformat()
+        res = self.client.get(f"/api/proveedores/purchase-orders/by-day/?date={day}")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        # Debe ser un objeto, no lista
+        self.assertIsInstance(res.data, dict)
+        self.assertIn("id", res.data)
+
+    def test_list_purchase_orders_with_date_no_results_returns_message(self):
+        # Asegurarnos de que no haya órdenes en una fecha futura
+        from django.utils import timezone
+        from datetime import timedelta
+        future_day = (timezone.now() + timedelta(days=30)).date().isoformat()
+
+        url = f"/api/proveedores/purchase-orders/by-day/?date={future_day}"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        # Debe devolver un objeto con 'detail' y no una lista vacía
+        self.assertIsInstance(res.data, dict)
+        self.assertIn("detail", res.data)
+        self.assertEqual(res.data["detail"], "No existen órdenes para el día seleccionado.")
+
+    def test_purchase_order_queryset_invalid_date_returns_all(self):
+        # Crear 2 órdenes hoy
+        url = "/api/proveedores/purchase-orders/"
+        for _ in range(2):
+            payload = {
+                "provider": self.provider.id,
+                "ordered_by": self.user.id,
+                "status": "PLACED",
+                "items": [
+                    {"product": self.product2.id, "quantity_units": 1, "unit_type": "units"},
+                ],
+            }
+            res = self.client.post(url, data=payload, format="json")
+            self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        # date inválido debe ignorarse y devolver todas
+        res_list = self.client.get(f"{url}?date=2025-13-40")
+        self.assertEqual(res_list.status_code, status.HTTP_200_OK)
+        data = res_list.data if isinstance(res_list.data, list) else res_list.data.get("results", [])
+        self.assertEqual(len(data), 2)
