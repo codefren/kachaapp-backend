@@ -46,28 +46,80 @@ class ProveedoresAPITests(APITestCase):
 
     def test_create_and_retrieve_purchase_order(self):
         url = "/api/proveedores/purchase-orders/"
+        # Pedido 1: mismo producto en UNIDADES
+        payload_units = {
+            "provider": self.provider.id,
+            "ordered_by": self.user.id,
+            "status": "PLACED",
+            "notes": "Orden unidades",
+            "items": [
+                {"product": self.product2.id, "quantity_units": 10, "unit_type": "units"},
+            ],
+        }
+        res_units = self.client.post(url, data=payload_units, format="json")
+        self.assertEqual(res_units.status_code, status.HTTP_201_CREATED)
+        po_units_id = res_units.data["id"]
+        self.assertEqual(len(res_units.data["items"]), 1)
+        self.assertEqual(res_units.data["items"][0]["product"], self.product2.id)
+        self.assertEqual(res_units.data["items"][0]["quantity_units"], 10)
+
+        # Pedido 2: mismo producto en CAJAS
+        # Asegurar factor de conversión conocido
+        self.product2.units_per_box = 12
+        self.product2.save()
+        payload_boxes = {
+            "provider": self.provider.id,
+            "ordered_by": self.user.id,
+            "status": "PLACED",
+            "notes": "Orden cajas",
+            "items": [
+                {"product": self.product2.id, "quantity_units": 2, "unit_type": "boxes"},  # 2 cajas -> 24 unidades
+            ],
+        }
+        res_boxes = self.client.post(url, data=payload_boxes, format="json")
+        self.assertEqual(res_boxes.status_code, status.HTTP_201_CREATED)
+        po_boxes_id = res_boxes.data["id"]
+        self.assertEqual(len(res_boxes.data["items"]), 1)
+        self.assertEqual(res_boxes.data["items"][0]["product"], self.product2.id)
+        self.assertEqual(res_boxes.data["items"][0]["quantity_units"], 24)
+
+        # Retrieve detail de ambos pedidos
+        detail_units = self.client.get(f"/api/proveedores/purchase-orders/{po_units_id}/")
+        self.assertEqual(detail_units.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail_units.data["id"], po_units_id)
+        self.assertEqual(detail_units.data["provider"], self.provider.id)
+        self.assertEqual(len(detail_units.data["items"]), 1)
+
+        detail_boxes = self.client.get(f"/api/proveedores/purchase-orders/{po_boxes_id}/")
+        self.assertEqual(detail_boxes.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail_boxes.data["id"], po_boxes_id)
+        self.assertEqual(detail_boxes.data["provider"], self.provider.id)
+        self.assertEqual(len(detail_boxes.data["items"]), 1)
+
+    def test_create_order_same_product_units_and_boxes_consolidates(self):
+        # Configurar factor de cajas
+        self.product2.units_per_box = 12
+        self.product2.save()
+
+        url = "/api/proveedores/purchase-orders/"
         payload = {
             "provider": self.provider.id,
             "ordered_by": self.user.id,
             "status": "PLACED",
-            "notes": "Orden de prueba",
+            "notes": "Unidades y cajas del mismo producto",
             "items": [
-                {"product": self.product1.id, "quantity_units": 10, "unit_type": "units"},
-                {"product": self.product2.id, "quantity_units": 5, "unit_type": "boxes"},
+                {"product": self.product2.id, "quantity_units": 10, "unit_type": "units"},
+                {"product": self.product2.id, "quantity_units": 2, "unit_type": "boxes"},  # 24 unidades
             ],
         }
         res = self.client.post(url, data=payload, format="json")
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
-        po_id = res.data["id"]
-        self.assertEqual(len(res.data["items"]), 2)
-
-        # Retrieve detail
-        detail_url = f"/api/proveedores/purchase-orders/{po_id}/"
-        res2 = self.client.get(detail_url)
-        self.assertEqual(res2.status_code, status.HTTP_200_OK)
-        self.assertEqual(res2.data["id"], po_id)
-        self.assertEqual(res2.data["provider"], self.provider.id)
-        self.assertEqual(len(res2.data["items"]), 2)
+        # Debe consolidar en un solo ítem
+        self.assertEqual(len(res.data.get("items", [])), 1)
+        item = res.data["items"][0]
+        self.assertEqual(item["product"], self.product2.id)
+        # Total esperado: 10 unidades + (2 cajas * 12) = 34
+        self.assertEqual(item["quantity_units"], 34)
 
     def test_update_purchase_order(self):
         # Asegurar que boxes convierta correctamente: 1 caja = 12 unidades para product2
