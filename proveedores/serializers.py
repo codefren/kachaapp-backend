@@ -15,6 +15,7 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
     # Permitir especificar el tipo de unidad al crear: 'units' o 'boxes'.
     # Es de solo escritura; el modelo almacena siempre en unidades.
     unit_type = serializers.ChoiceField(choices=["units", "boxes"], required=False, write_only=True)
+    product_image = serializers.SerializerMethodField()
 
     class Meta:
         model = PurchaseOrderItem
@@ -22,6 +23,7 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
             "id",
             "product",
             "product_name",
+            "product_image",
             "quantity_units",
             "unit_type",
             "unit_price",
@@ -31,6 +33,26 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = ("id", "subtotal", "created_at", "updated_at")
+
+    def get_product_image(self, obj):
+        product = getattr(obj, "product", None)
+        if not product:
+            return None
+        image_field = getattr(product, "image", None)
+        if not image_field:
+            return None
+        try:
+            url = image_field.url
+        except Exception:
+            return None
+        request = self.context.get("request")
+        if request is not None:
+            abs_url = request.build_absolute_uri(url)
+        else:
+            abs_url = url
+        if abs_url.startswith("http://"):
+            abs_url = "https://" + abs_url[len("http://"):]
+        return abs_url
 
 
 class ProviderSerializer(serializers.ModelSerializer):
