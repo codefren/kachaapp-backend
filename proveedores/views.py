@@ -93,10 +93,19 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         Respuesta: {"has_ordered_today": true|false}
         """
         today = timezone.now().date()
-        has_order = PurchaseOrder.objects.filter(
+        qs = PurchaseOrder.objects.filter(
             ordered_by=request.user,
             created_at__date=today,
-        ).exists()
+        )
+        provider_id = request.query_params.get("provider")
+        if provider_id is not None:
+            # Validación básica de entero
+            try:
+                provider_id_int = int(provider_id)
+            except (TypeError, ValueError):
+                return Response({"detail": "El parámetro 'provider' debe ser un entero."}, status=status.HTTP_400_BAD_REQUEST)
+            qs = qs.filter(provider_id=provider_id_int)
+        has_order = qs.exists()
         return Response({"has_ordered_today": has_order})
 
     @action(detail=False, methods=["get"], url_path="by-day")
