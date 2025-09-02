@@ -136,9 +136,27 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         items_data = validated_data.pop("items", [])
         order = PurchaseOrder.objects.create(**validated_data)
+        # Consolidar por producto después de normalizar
+        consolidated = {}
         for item in items_data:
             normalized = self._normalize_item(item)
-            PurchaseOrderItem.objects.create(order=order, **normalized)
+            product_ref = normalized.get("product")
+            # Resolver id de producto
+            try:
+                product_id = product_ref.pk if isinstance(product_ref, Product) else int(product_ref)
+            except Exception:
+                # Si no se puede resolver, inserta tal cual para que validaciones del modelo actúen
+                PurchaseOrderItem.objects.create(order=order, **normalized)
+                continue
+            entry = consolidated.setdefault(product_id, {"quantity_units": 0})
+            entry["quantity_units"] += int(normalized.get("quantity_units", 0) or 0)
+            # Mantener últimos valores de otros campos no críticos
+            if "unit_price" in normalized:
+                entry["unit_price"] = normalized["unit_price"]
+            if "notes" in normalized:
+                entry["notes"] = normalized["notes"]
+        for pid, data in consolidated.items():
+            PurchaseOrderItem.objects.create(order=order, product_id=pid, **data)
         return order
 
     def update(self, instance, validated_data):
@@ -149,9 +167,23 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         if items_data is not None:
             # Simple strategy: clear and recreate
             instance.items.all().delete()
+            consolidated = {}
             for item in items_data:
                 normalized = self._normalize_item(item)
-                PurchaseOrderItem.objects.create(order=instance, **normalized)
+                product_ref = normalized.get("product")
+                try:
+                    product_id = product_ref.pk if isinstance(product_ref, Product) else int(product_ref)
+                except Exception:
+                    PurchaseOrderItem.objects.create(order=instance, **normalized)
+                    continue
+                entry = consolidated.setdefault(product_id, {"quantity_units": 0})
+                entry["quantity_units"] += int(normalized.get("quantity_units", 0) or 0)
+                if "unit_price" in normalized:
+                    entry["unit_price"] = normalized["unit_price"]
+                if "notes" in normalized:
+                    entry["notes"] = normalized["notes"]
+            for pid, data in consolidated.items():
+                PurchaseOrderItem.objects.create(order=instance, product_id=pid, **data)
         return instance
 
     def _normalize_item(self, item: dict) -> dict:
