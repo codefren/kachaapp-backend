@@ -56,6 +56,13 @@ class Product(models.Model):
     units_per_box = models.PositiveIntegerField(
         default=1, help_text="Units per box (wholesale)"
     )
+    # Referencia de la última compra
+    amount_units = models.PositiveIntegerField(
+        default=0, help_text="Units purchased in the last order"
+    )
+    amount_boxes = models.PositiveIntegerField(
+        default=0, help_text="Boxes purchased in the last order"
+    )
     image = models.ImageField(upload_to="products/", blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -138,7 +138,16 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         order = PurchaseOrder.objects.create(**validated_data)
         # Consolidar por producto después de normalizar
         consolidated = {}
+        boxes_count = {}
         for item in items_data:
+            # Contabilizar cajas del request antes de normalizar
+            try:
+                product_ref_req = item.get("product")
+                pid_req = product_ref_req.pk if isinstance(product_ref_req, Product) else int(product_ref_req)
+                if item.get("unit_type", "units") == "boxes":
+                    boxes_count[pid_req] = boxes_count.get(pid_req, 0) + int(item.get("quantity_units", 0) or 0)
+            except Exception:
+                pass
             normalized = self._normalize_item(item)
             product_ref = normalized.get("product")
             # Resolver id de producto
@@ -156,7 +165,15 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             if "notes" in normalized:
                 entry["notes"] = normalized["notes"]
         for pid, data in consolidated.items():
-            PurchaseOrderItem.objects.create(order=order, product_id=pid, **data)
+            item = PurchaseOrderItem.objects.create(order=order, product_id=pid, **data)
+            # Actualizar referencia de última compra en el producto
+            try:
+                product = item.product if hasattr(item, "product") else Product.objects.get(pk=pid)
+                product.amount_units = int(item.quantity_units or 0)
+                product.amount_boxes = int(boxes_count.get(pid, 0))
+                product.save(update_fields=["amount_units", "amount_boxes", "updated_at"])
+            except Exception:
+                pass
         return order
 
     def update(self, instance, validated_data):
@@ -168,7 +185,16 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             # Simple strategy: clear and recreate
             instance.items.all().delete()
             consolidated = {}
+            boxes_count = {}
             for item in items_data:
+                # Contabilizar cajas del request antes de normalizar
+                try:
+                    product_ref_req = item.get("product")
+                    pid_req = product_ref_req.pk if isinstance(product_ref_req, Product) else int(product_ref_req)
+                    if item.get("unit_type", "units") == "boxes":
+                        boxes_count[pid_req] = boxes_count.get(pid_req, 0) + int(item.get("quantity_units", 0) or 0)
+                except Exception:
+                    pass
                 normalized = self._normalize_item(item)
                 product_ref = normalized.get("product")
                 try:
@@ -183,8 +209,16 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
                 if "notes" in normalized:
                     entry["notes"] = normalized["notes"]
             for pid, data in consolidated.items():
-                PurchaseOrderItem.objects.create(order=instance, product_id=pid, **data)
-        return instance
+                item = PurchaseOrderItem.objects.create(order=instance, product_id=pid, **data)
+                # Actualizar referencia de última compra en el producto
+                try:
+                    product = item.product if hasattr(item, "product") else Product.objects.get(pk=pid)
+                    product.amount_units = int(item.quantity_units or 0)
+                    product.amount_boxes = int(boxes_count.get(pid, 0))
+                    product.save(update_fields=["amount_units", "amount_boxes", "updated_at"])
+                except Exception:
+                    pass
+            return instance
 
     def _normalize_item(self, item: dict) -> dict:
         """Convierte la entrada del ítem a unidades del modelo.

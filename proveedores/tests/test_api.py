@@ -166,6 +166,69 @@ class ProveedoresAPITests(APITestCase):
         self.assertEqual(qty_by_product.get(self.product1.id), 4)
         self.assertEqual(qty_by_product.get(self.product2.id), 24)  # 2 cajas * 12
 
+    def test_product_last_purchase_amounts_on_create(self):
+        # Configurar factor de cajas y crear orden con cajas
+        self.product2.units_per_box = 12
+        self.product2.save()
+
+        url = "/api/proveedores/purchase-orders/"
+        payload = {
+            "provider": self.provider.id,
+            "ordered_by": self.user.id,
+            "status": "PLACED",
+            "notes": "PO para historial",
+            "items": [
+                {"product": self.product2.id, "quantity_units": 3, "unit_type": "boxes"},  # 36 unidades
+            ],
+        }
+        res = self.client.post(url, data=payload, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        # Consultar detalle del producto y verificar amount_*
+        prod_detail = self.client.get(f"/api/proveedores/products/{self.product2.id}/")
+        self.assertEqual(prod_detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(prod_detail.data.get("amount_units"), 36)
+        self.assertEqual(prod_detail.data.get("amount_boxes"), 3)
+
+    def test_product_last_purchase_amounts_on_update(self):
+        # Crear orden inicial con unidades
+        create_url = "/api/proveedores/purchase-orders/"
+        payload = {
+            "provider": self.provider.id,
+            "ordered_by": self.user.id,
+            "status": "PLACED",
+            "items": [
+                {"product": self.product2.id, "quantity_units": 5, "unit_type": "units"},
+            ],
+        }
+        res_create = self.client.post(create_url, data=payload, format="json")
+        self.assertEqual(res_create.status_code, status.HTTP_201_CREATED)
+        po_id = res_create.data["id"]
+
+        # Verificar referencia inicial
+        prod_detail_1 = self.client.get(f"/api/proveedores/products/{self.product2.id}/")
+        self.assertEqual(prod_detail_1.status_code, status.HTTP_200_OK)
+        self.assertEqual(prod_detail_1.data.get("amount_units"), 5)
+        self.assertEqual(prod_detail_1.data.get("amount_boxes"), 0)
+
+        # Actualizar orden: cambiar a cajas (2 cajas con 12/u)
+        self.product2.units_per_box = 12
+        self.product2.save()
+        patch_url = f"/api/proveedores/purchase-orders/{po_id}/"
+        patch_payload = {
+            "items": [
+                {"product": self.product2.id, "quantity_units": 2, "unit_type": "boxes"},
+            ]
+        }
+        res_patch = self.client.patch(patch_url, data=patch_payload, format="json")
+        self.assertIn(res_patch.status_code, (status.HTTP_200_OK, status.HTTP_202_ACCEPTED))
+
+        # Verificar referencia actualizada
+        prod_detail_2 = self.client.get(f"/api/proveedores/products/{self.product2.id}/")
+        self.assertEqual(prod_detail_2.status_code, status.HTTP_200_OK)
+        self.assertEqual(prod_detail_2.data.get("amount_units"), 24)
+        self.assertEqual(prod_detail_2.data.get("amount_boxes"), 2)
+
     def test_list_purchase_order_items(self):
         # Create a PO to have items
         po = PurchaseOrder.objects.create(provider=self.provider, ordered_by=self.user, status="PLACED")
