@@ -131,21 +131,30 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "created_at", "updated_at")
+        read_only_fields = ("id", "created_at", "updated_at", "ordered_by")
 
     def create(self, validated_data):
         items_data = validated_data.pop("items", [])
+        # Forzar el creador de la orden desde el request
+        request = self.context.get("request")
+        if request is not None and not request.user.is_anonymous:
+            validated_data["ordered_by"] = request.user
         order = PurchaseOrder.objects.create(**validated_data)
         # Consolidar por producto después de normalizar
         consolidated = {}
         boxes_count = {}
+        units_count = {}
         for item in items_data:
             # Contabilizar cajas del request antes de normalizar
             try:
                 product_ref_req = item.get("product")
                 pid_req = product_ref_req.pk if isinstance(product_ref_req, Product) else int(product_ref_req)
-                if item.get("unit_type", "units") == "boxes":
-                    boxes_count[pid_req] = boxes_count.get(pid_req, 0) + int(item.get("quantity_units", 0) or 0)
+                unit_type_req = item.get("unit_type", "units")
+                qty_req = int(item.get("quantity_units", 0) or 0)
+                if unit_type_req == "boxes":
+                    boxes_count[pid_req] = boxes_count.get(pid_req, 0) + qty_req
+                elif unit_type_req == "units":
+                    units_count[pid_req] = units_count.get(pid_req, 0) + qty_req
             except Exception:
                 pass
             normalized = self._normalize_item(item)
@@ -169,7 +178,8 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             # Actualizar referencia de última compra en el producto
             try:
                 product = item.product if hasattr(item, "product") else Product.objects.get(pk=pid)
-                product.amount_units = int(item.quantity_units or 0)
+                # amount_units: unidades solicitadas explícitamente en el request
+                product.amount_units = int(units_count.get(pid, 0))
                 product.amount_boxes = int(boxes_count.get(pid, 0))
                 product.save(update_fields=["amount_units", "amount_boxes", "updated_at"])
             except Exception:
@@ -178,6 +188,8 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         items_data = validated_data.pop("items", None)
+        # No permitir cambiar el creador de la orden
+        validated_data.pop("ordered_by", None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
@@ -186,13 +198,18 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             instance.items.all().delete()
             consolidated = {}
             boxes_count = {}
+            units_count = {}
             for item in items_data:
                 # Contabilizar cajas del request antes de normalizar
                 try:
                     product_ref_req = item.get("product")
                     pid_req = product_ref_req.pk if isinstance(product_ref_req, Product) else int(product_ref_req)
-                    if item.get("unit_type", "units") == "boxes":
-                        boxes_count[pid_req] = boxes_count.get(pid_req, 0) + int(item.get("quantity_units", 0) or 0)
+                    unit_type_req = item.get("unit_type", "units")
+                    qty_req = int(item.get("quantity_units", 0) or 0)
+                    if unit_type_req == "boxes":
+                        boxes_count[pid_req] = boxes_count.get(pid_req, 0) + qty_req
+                    elif unit_type_req == "units":
+                        units_count[pid_req] = units_count.get(pid_req, 0) + qty_req
                 except Exception:
                     pass
                 normalized = self._normalize_item(item)
@@ -213,7 +230,8 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
                 # Actualizar referencia de última compra en el producto
                 try:
                     product = item.product if hasattr(item, "product") else Product.objects.get(pk=pid)
-                    product.amount_units = int(item.quantity_units or 0)
+                    # amount_units: unidades solicitadas explícitamente en el request
+                    product.amount_units = int(units_count.get(pid, 0))
                     product.amount_boxes = int(boxes_count.get(pid, 0))
                     product.save(update_fields=["amount_units", "amount_boxes", "updated_at"])
                 except Exception:
