@@ -106,6 +106,30 @@ class ProveedoresAPITests(APITestCase):
         self.assertEqual(pu_by_product.get(self.product2.id), "boxes")
         self.assertEqual(pu_by_product.get(self.product1.id), "units")
 
+    def test_same_product_units_and_boxes_are_separate_lines(self):
+        url = "/api/proveedores/purchase-orders/"
+        payload = {
+            "provider": self.provider.id,
+            "status": "PLACED",
+            "notes": "Mismo producto con units y boxes",
+            "items": [
+                {"product": self.product2.id, "quantity_units": 4, "purchase_unit": "units"},
+                {"product": self.product2.id, "quantity_units": 1, "purchase_unit": "boxes"},
+            ],
+        }
+        res = self.client.post(url, data=payload, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        items = res.data.get("items", [])
+        # Deben ser 2 renglones separados para el mismo producto
+        self.assertEqual(len(items), 2)
+        # Validar que haya uno units y otro boxes
+        units_line = next((it for it in items if it["purchase_unit"] == "units"), None)
+        boxes_line = next((it for it in items if it["purchase_unit"] == "boxes"), None)
+        self.assertIsNotNone(units_line)
+        self.assertIsNotNone(boxes_line)
+        self.assertEqual(units_line["product"], self.product2.id)
+        self.assertEqual(boxes_line["product"], self.product2.id)
+
     def test_create_order_same_product_multiple_lines_consolidates(self):
         url = "/api/proveedores/purchase-orders/"
         payload = {

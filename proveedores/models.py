@@ -190,9 +190,9 @@ class PurchaseOrderItem(models.Model):
             models.CheckConstraint(
                 check=models.Q(quantity_units__gt=0), name="chk_poi_qty_gt_0"
             ),
-            # Evitar duplicados del mismo producto en la misma orden
+            # Evitar duplicados del mismo producto y misma unidad de compra en la misma orden
             models.UniqueConstraint(
-                fields=["order", "product"], name="uq_poi_order_product"
+                fields=["order", "product", "purchase_unit"], name="uq_poi_order_product_purchase_unit"
             ),
         ]
 

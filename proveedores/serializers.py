@@ -155,17 +155,21 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         if request is not None and not request.user.is_anonymous:
             validated_data["ordered_by"] = request.user
         order = PurchaseOrder.objects.create(**validated_data)
-        # Consolidar por producto después de normalizar
+        # Consolidar por (producto, purchase_unit) después de normalizar
         consolidated = {}
-        boxes_count = {}
         units_count = {}
+        boxes_count = {}
         for item in items_data:
-            # Contabilizar únicamente unidades; boxes ya no se soporta
+            # Contabilizar cantidades por tipo declarado en purchase_unit
             try:
                 product_ref_req = item.get("product")
                 pid_req = product_ref_req.pk if isinstance(product_ref_req, Product) else int(product_ref_req)
                 qty_req = int(item.get("quantity_units", 0) or 0)
-                units_count[pid_req] = units_count.get(pid_req, 0) + qty_req
+                pu_req = item.get("purchase_unit")
+                if pu_req == "boxes":
+                    boxes_count[pid_req] = boxes_count.get(pid_req, 0) + qty_req
+                else:
+                    units_count[pid_req] = units_count.get(pid_req, 0) + qty_req
             except Exception:
                 pass
             normalized = self._normalize_item(item)
@@ -177,31 +181,30 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
                 # Si no se puede resolver, inserta tal cual para que validaciones del modelo actúen
                 PurchaseOrderItem.objects.create(order=order, **normalized)
                 continue
-            entry = consolidated.setdefault(product_id, {"quantity_units": 0})
+            pu = normalized.get("purchase_unit") or "units"
+            key = (product_id, pu)
+            entry = consolidated.setdefault(key, {"quantity_units": 0, "purchase_unit": pu})
             entry["quantity_units"] += int(normalized.get("quantity_units", 0) or 0)
-            # Mantener últimos valores de otros campos no críticos
-            if "unit_price" in normalized:
-                entry["unit_price"] = normalized["unit_price"]
             if "notes" in normalized:
                 entry["notes"] = normalized["notes"]
-            if "purchase_unit" in normalized:
-                entry["purchase_unit"] = normalized["purchase_unit"] or "units"
-        for pid, data in consolidated.items():
+        for (pid, _pu), data in consolidated.items():
             item = PurchaseOrderItem.objects.create(order=order, product_id=pid, **data)
             # Actualizar referencia de última compra en el producto
             try:
                 product = item.product if hasattr(item, "product") else Product.objects.get(pk=pid)
-                # amount_units: unidades solicitadas explícitamente en el request
                 product.amount_units = int(units_count.get(pid, 0))
-                product.amount_boxes = 0
-                product.save(update_fields=["amount_units", "amount_boxes", "updated_at"])
+                # Si el modelo expone amount_boxes, actualizarlo también
+                if hasattr(product, "amount_boxes"):
+                    product.amount_boxes = int(boxes_count.get(pid, 0))
+                    product.save(update_fields=["amount_units", "amount_boxes", "updated_at"])
+                else:
+                    product.save(update_fields=["amount_units", "updated_at"])
             except Exception:
                 pass
         return order
 
     def update(self, instance, validated_data):
         items_data = validated_data.pop("items", None)
-        # No permitir cambiar el creador de la orden
         validated_data.pop("ordered_by", None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -210,15 +213,21 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             # Simple strategy: clear and recreate
             instance.items.all().delete()
             consolidated = {}
-            boxes_count = {}
             units_count = {}
+            boxes_count = {}
             for item in items_data:
-                # Contabilizar únicamente unidades; boxes ya no se soporta
+                # Contabilizar cantidades por tipo declarado en purchase_unit
                 try:
                     product_ref_req = item.get("product")
                     pid_req = product_ref_req.pk if isinstance(product_ref_req, Product) else int(product_ref_req)
                     qty_req = int(item.get("quantity_units", 0) or 0)
-                    units_count[pid_req] = units_count.get(pid_req, 0) + qty_req
+                    pu_req = item.get("purchase_unit", "units")  # Default to "units"
+                    if pu_req not in ("units", "boxes"):
+                        pu_req = "units"
+                    if pu_req == "boxes":
+                        boxes_count[pid_req] = boxes_count.get(pid_req, 0) + qty_req
+                    else:
+                        units_count[pid_req] = units_count.get(pid_req, 0) + qty_req
                 except Exception:
                     pass
                 normalized = self._normalize_item(item)
@@ -228,39 +237,37 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
                 except Exception:
                     PurchaseOrderItem.objects.create(order=instance, **normalized)
                     continue
-                entry = consolidated.setdefault(product_id, {"quantity_units": 0})
+                pu = normalized.get("purchase_unit") or "units"
+                key = (product_id, pu)
+                entry = consolidated.setdefault(key, {"quantity_units": 0, "purchase_unit": pu})
                 entry["quantity_units"] += int(normalized.get("quantity_units", 0) or 0)
                 if "notes" in normalized:
                     entry["notes"] = normalized["notes"]
-                if "purchase_unit" in normalized:
-                    entry["purchase_unit"] = normalized["purchase_unit"] or "units"
-            for pid, data in consolidated.items():
+            for (pid, _pu), data in consolidated.items():
                 item = PurchaseOrderItem.objects.create(order=instance, product_id=pid, **data)
-                # Actualizar referencia de última compra en el producto
                 try:
                     product = item.product if hasattr(item, "product") else Product.objects.get(pk=pid)
-                    # amount_units: unidades solicitadas explícitamente en el request
                     product.amount_units = int(units_count.get(pid, 0))
-                    product.amount_boxes = 0
-                    product.save(update_fields=["amount_units", "amount_boxes", "updated_at"])
+                    if hasattr(product, "amount_boxes"):
+                        product.amount_boxes = int(boxes_count.get(pid, 0))
+                        product.save(update_fields=["amount_units", "amount_boxes", "updated_at"])
+                    else:
+                        product.save(update_fields=["amount_units", "updated_at"])
                 except Exception:
                     pass
         return instance
 
     def _normalize_item(self, item: dict) -> dict:
-        """Normaliza la entrada del ítem sin conversión por cajas.
+        """Normaliza el ítem usando únicamente 'purchase_unit'.
 
-        - Se asegura que quantity_units sea un entero.
-        - Ignora cualquier clave ajena legacy (p.ej. unit_type) si viene en el payload.
-        - Acepta purchase_unit (units|boxes) y aplica default 'units' si no viene.
+        - Convierte quantity_units a int.
+        - Valida purchase_unit en {"units", "boxes"}; por defecto "units".
         """
-        data = dict(item)  # copiar para no mutar el argumento original
+        data = dict(item)
         qty = int(data.get("quantity_units", 0) or 0)
         data["quantity_units"] = qty
-        # Legacy: Remover unit_type si viene para evitar fallos en create()
-        data.pop("unit_type", None)
-        # purchase_unit opcional; default 'units'
         pu = data.get("purchase_unit")
         if pu not in ("units", "boxes"):
-            data["purchase_unit"] = "units"
+            pu = "units"
+        data["purchase_unit"] = pu
         return data
