@@ -50,13 +50,6 @@ class Product(models.Model):
     name = models.CharField(max_length=150)
     sku = models.CharField(max_length=50, unique=True)
     providers = models.ManyToManyField(Provider, related_name="products")
-    stock_units = models.PositiveIntegerField(
-        default=0, help_text="Units in stock (retail)"
-    )
-    units_per_box = models.PositiveIntegerField(
-        default=1, help_text="Units per box (wholesale)"
-    )
-    # Referencia de la última compra
     amount_units = models.PositiveIntegerField(
         default=0, help_text="Units purchased in the last order"
     )
@@ -169,7 +162,17 @@ class PurchaseOrderItem(models.Model):
         Product, on_delete=models.PROTECT, related_name="purchase_order_items"
     )
     quantity_units = models.PositiveIntegerField(default=0, help_text="Units to order")
-    unit_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    class PurchaseUnit(models.TextChoices):
+        UNITS = "units", "units"
+        BOXES = "boxes", "boxes"
+
+    purchase_unit = models.CharField(
+        max_length=10,
+        choices=PurchaseUnit.choices,
+        default=PurchaseUnit.UNITS,
+        db_index=True,
+        help_text="Unit expressed by the purchaser (no conversion)",
+    )
     notes = models.CharField(max_length=200, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -187,10 +190,6 @@ class PurchaseOrderItem(models.Model):
             models.CheckConstraint(
                 check=models.Q(quantity_units__gt=0), name="chk_poi_qty_gt_0"
             ),
-            # unit_price >= 0
-            models.CheckConstraint(
-                check=models.Q(unit_price__gte=0), name="chk_poi_unit_price_gte_0"
-            ),
             # Evitar duplicados del mismo producto en la misma orden
             models.UniqueConstraint(
                 fields=["order", "product"], name="uq_poi_order_product"
@@ -200,9 +199,7 @@ class PurchaseOrderItem(models.Model):
     def __str__(self):
         return f"{self.product.name} x {self.quantity_units}"
 
-    @property
-    def subtotal(self):
-        return self.quantity_units * self.unit_price
+    
 
     def clean(self):
         # Validaciones de negocio adicionales

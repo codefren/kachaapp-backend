@@ -58,7 +58,7 @@ class HasPrimaryBarcodeFilter(admin.SimpleListFilter):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "sku", "stock_units", "units_per_box")
+    list_display = ("id", "name", "sku", "amount_units", "amount_boxes")
     search_fields = ("name", "sku", "providers__name", "barcodes__code")
     list_filter = ("providers", HasBarcodeFilter, HasPrimaryBarcodeFilter)
     ordering = ("name",)
@@ -70,8 +70,8 @@ class ProductAdmin(admin.ModelAdmin):
         "name",
         "sku",
         "providers",
-        "stock_units",
-        "units_per_box",
+        "amount_units",
+        "amount_boxes",
         "image",
         "image_preview",
     )
@@ -96,7 +96,7 @@ class ProductBarcodeAdmin(admin.ModelAdmin):
 class PurchaseOrderItemInline(admin.TabularInline):
     model = PurchaseOrderItem
     extra = 1
-    fields = ("product", "quantity_units", "unit_price", "notes")
+    fields = ("product", "quantity_units", "purchase_unit", "notes")
     autocomplete_fields = ("product",)
 
 
@@ -138,8 +138,7 @@ class PurchaseOrderItemAdmin(admin.ModelAdmin):
         "order",
         "product",
         "quantity_units",
-        "unit_price",
-        "subtotal",
+        "purchase_unit",
         "created_at",
     )
     list_filter = ("order", "product", "created_at")
