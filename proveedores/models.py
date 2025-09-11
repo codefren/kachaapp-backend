@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from simple_history.models import HistoricalRecords
 
 
 class Provider(models.Model):
@@ -43,6 +44,14 @@ class ProductFavorite(models.Model):
     def __str__(self):
         return f"{self.user} - {self.product}"
 
+#imagens/app/kch
+# se relacionan por el codigo del articulo
+# 
+
+# History of Product and Purchase Order Model
+
+
+
 
 class Product(models.Model):
     """Producto suministrado por uno o varios proveedores."""
@@ -50,15 +59,14 @@ class Product(models.Model):
     name = models.CharField(max_length=150)
     sku = models.CharField(max_length=50, unique=True)
     providers = models.ManyToManyField(Provider, related_name="products")
-    amount_units = models.PositiveIntegerField(
-        default=0, help_text="Units purchased in the last order"
-    )
     amount_boxes = models.PositiveIntegerField(
         default=0, help_text="Boxes purchased in the last order"
     )
+    units_per_box = models.PositiveIntegerField(default=1) # Unidades por caja
     image = models.ImageField(upload_to="products/", blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    history = HistoricalRecords()
 
     class Meta:
         ordering = ["name"]
@@ -138,6 +146,7 @@ class PurchaseOrder(models.Model):
     notes = models.CharField(max_length=300, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    history = HistoricalRecords()
 
     class Meta:
         ordering = ["-created_at"]
