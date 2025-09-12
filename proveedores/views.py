@@ -122,9 +122,17 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         except ValueError:
             return Response({"detail": "El parámetro 'date' no tiene el formato correcto (YYYY-MM-DD)."}, status=status.HTTP_400_BAD_REQUEST)
 
-        queryset = self.filter_queryset(
-            self.get_queryset().filter(created_at__date=d).order_by("-created_at")
-        )
+        base_qs = self.get_queryset().filter(created_at__date=d)
+        # Filtro opcional por proveedor: ?provider=<id>
+        provider_id = request.query_params.get("provider")
+        if provider_id is not None:
+            try:
+                provider_id_int = int(provider_id)
+            except (TypeError, ValueError):
+                return Response({"detail": "El parámetro 'provider' debe ser un entero."}, status=status.HTTP_400_BAD_REQUEST)
+            base_qs = base_qs.filter(provider_id=provider_id_int)
+
+        queryset = self.filter_queryset(base_qs.order_by("-created_at"))
 
         # Si no hay ninguna orden para ese día
         if not queryset.exists():

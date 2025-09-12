@@ -591,3 +591,37 @@ class ProveedoresAPITests(APITestCase):
         self.assertEqual(res_list.status_code, status.HTTP_200_OK)
         data = res_list.data if isinstance(res_list.data, list) else res_list.data.get("results", [])
         self.assertEqual(len(data), 2)
+    
+    def test_purchase_order_queryset_for_by_day_and_provider(self):
+        from django.utils import timezone
+        from datetime import timedelta
+
+        # Crear otro proveedor
+        other_provider = Provider.objects.create(name="Proveedor C")
+
+        # Crear dos órdenes hoy: una para provider principal (más antigua) y otra para el otro provider (más reciente)
+        po1 = PurchaseOrder.objects.create(provider=self.provider, ordered_by=self.user, status="PLACED")
+        po2 = PurchaseOrder.objects.create(provider=other_provider, ordered_by=self.user, status="PLACED")
+
+        # Ajustar created_at para que po1 sea más antigua que po2
+        older = timezone.now() - timedelta(hours=1)
+        PurchaseOrder.objects.filter(id=po1.id).update(created_at=older)
+
+        day = timezone.now().date().isoformat()
+
+        # Filtro por provider principal -> debe devolver po1
+        res_main = self.client.get(f"/api/proveedores/purchase-orders/by-day/?date={day}&provider={self.provider.id}")
+        self.assertEqual(res_main.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(res_main.data, dict)
+        self.assertEqual(res_main.data.get("provider"), self.provider.id)
+
+        # Filtro por otro provider -> debe devolver po2 (la más reciente de ese provider)
+        res_other = self.client.get(f"/api/proveedores/purchase-orders/by-day/?date={day}&provider={other_provider.id}")
+        self.assertEqual(res_other.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(res_other.data, dict)
+        self.assertEqual(res_other.data.get("provider"), other_provider.id)
+
+        # provider inválido -> 400
+        res_bad = self.client.get(f"/api/proveedores/purchase-orders/by-day/?date={day}&provider=abc")
+        self.assertEqual(res_bad.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", res_bad.data)
