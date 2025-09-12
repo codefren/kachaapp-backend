@@ -187,33 +187,39 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         if request is not None and not request.user.is_anonymous:
             validated_data["ordered_by"] = request.user
         order = PurchaseOrder.objects.create(**validated_data)
-        # Consolidar por (producto, purchase_unit) después de normalizar
-        consolidated = {}
-        boxes_count = {}
+        # Consolidar por (product_id, purchase_unit="boxes") para respetar la restricción de unicidad
+        consolidated: dict[tuple[int, str], dict] = {}
+        boxes_override_by_product: dict[int, int] = {}
         for item in items_data:
             normalized = self._normalize_item(item)
+            # Leer override antes de limpiar
+            amt_raw = (item or {}).get("amount_boxes")
+            # 'amount_boxes' NO es campo del modelo PurchaseOrderItem; quitarlo antes de crear
+            normalized.pop("amount_boxes", None)
             product_ref = normalized.get("product")
             try:
                 product_id = product_ref.pk if isinstance(product_ref, Product) else int(product_ref)
             except Exception:
-                # Si no se puede resolver, inserta tal cual para que validaciones del modelo actúen
+                # Si no se puede resolver, crear directo y seguir
                 PurchaseOrderItem.objects.create(order=order, **normalized)
                 continue
-            # Solo boxes
-            pu = "boxes"
-            key = (product_id, pu)
-            entry = consolidated.setdefault(key, {"quantity_units": 0, "purchase_unit": pu})
+            key = (product_id, "boxes")
+            entry = consolidated.setdefault(key, {"quantity_units": 0, "purchase_unit": "boxes"})
             entry["quantity_units"] += int(normalized.get("quantity_units", 0) or 0)
-            # Registrar conteo por producto para actualizar Product.amount_boxes
-            boxes_count[product_id] = boxes_count.get(product_id, 0) + int(normalized.get("quantity_units", 0) or 0)
             if "notes" in normalized:
                 entry["notes"] = normalized["notes"]
+            # Registrar último override por producto si vino
+            if amt_raw is not None:
+                try:
+                    boxes_override_by_product[product_id] = int(amt_raw)
+                except (TypeError, ValueError):
+                    pass
         for (pid, _pu), data in consolidated.items():
             PurchaseOrderItem.objects.create(order=order, product_id=pid, **data)
-        # Persistir referencia de última compra en el producto (amount_boxes)
-        for pid, total_boxes in boxes_count.items():
+        # Persistir en Product.amount_boxes si vino amount_boxes en el payload
+        for pid, final_boxes in boxes_override_by_product.items():
             try:
-                Product.objects.filter(pk=pid).update(amount_boxes=int(total_boxes))
+                Product.objects.filter(pk=pid).update(amount_boxes=int(final_boxes))
             except Exception:
                 pass
         return order
@@ -225,32 +231,36 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
         if items_data is not None:
-            # Simple strategy: clear and recreate
+            # Borrar todos los ítems y recrear consolidando por producto para respetar unicidad
             instance.items.all().delete()
-            consolidated = {}
-            boxes_count = {}
+            consolidated: dict[tuple[int, str], dict] = {}
+            boxes_override_by_product: dict[int, int] = {}
             for item in items_data:
                 normalized = self._normalize_item(item)
+                amt_raw = (item or {}).get("amount_boxes")
+                normalized.pop("amount_boxes", None)
                 product_ref = normalized.get("product")
                 try:
                     product_id = product_ref.pk if isinstance(product_ref, Product) else int(product_ref)
                 except Exception:
                     PurchaseOrderItem.objects.create(order=instance, **normalized)
                     continue
-                # Solo boxes
-                pu = "boxes"
-                key = (product_id, pu)
-                entry = consolidated.setdefault(key, {"quantity_units": 0, "purchase_unit": pu})
+                key = (product_id, "boxes")
+                entry = consolidated.setdefault(key, {"quantity_units": 0, "purchase_unit": "boxes"})
                 entry["quantity_units"] += int(normalized.get("quantity_units", 0) or 0)
-                boxes_count[product_id] = boxes_count.get(product_id, 0) + int(normalized.get("quantity_units", 0) or 0)
                 if "notes" in normalized:
                     entry["notes"] = normalized["notes"]
+                if amt_raw is not None:
+                    try:
+                        boxes_override_by_product[product_id] = int(amt_raw)
+                    except (TypeError, ValueError):
+                        pass
             for (pid, _pu), data in consolidated.items():
                 PurchaseOrderItem.objects.create(order=instance, product_id=pid, **data)
-            # Actualizar amount_boxes del producto con el total de la orden
-            for pid, total_boxes in boxes_count.items():
+            # Persistir en Product.amount_boxes si vino amount_boxes en el payload
+            for pid, final_boxes in boxes_override_by_product.items():
                 try:
-                    Product.objects.filter(pk=pid).update(amount_boxes=int(total_boxes))
+                    Product.objects.filter(pk=pid).update(amount_boxes=int(final_boxes))
                 except Exception:
                     pass
         return instance
