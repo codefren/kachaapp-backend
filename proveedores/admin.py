@@ -1,4 +1,5 @@
 from django.contrib import admin
+from simple_history.admin import SimpleHistoryAdmin
 
 from .models import Provider, Product, ProductBarcode, PurchaseOrder, PurchaseOrderItem
 
@@ -57,7 +58,7 @@ class HasPrimaryBarcodeFilter(admin.SimpleListFilter):
 
 
 @admin.register(Product)
-class ProductAdmin(admin.ModelAdmin):
+class ProductAdmin(SimpleHistoryAdmin):
     list_display = ("id", "name", "sku", "units_per_box", "amount_boxes")
     search_fields = ("name", "sku", "providers__name", "barcodes__code")
     list_filter = ("providers", HasBarcodeFilter, HasPrimaryBarcodeFilter)
@@ -101,7 +102,7 @@ class PurchaseOrderItemInline(admin.TabularInline):
 
 
 @admin.register(PurchaseOrder)
-class PurchaseOrderAdmin(admin.ModelAdmin):
+class PurchaseOrderAdmin(SimpleHistoryAdmin):
     list_display = ("id", "provider", "status", "ordered_by", "created_at")
     list_filter = ("provider", "status", "created_at")
     search_fields = ("provider__name", "ordered_by__username")
