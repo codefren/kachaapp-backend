@@ -11,8 +11,8 @@ from .models import (
 
 class PurchaseOrderItemSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)
-    # Hacemos este campo editable; escribirá en Product.amount_boxes
-    amount_boxes = serializers.IntegerField(source="product.amount_boxes", required=False)
+    # Campo editable independiente (write-only). Para salida, lo calculamos desde product.
+    amount_boxes = serializers.IntegerField(required=False, write_only=True)
     product_image = serializers.SerializerMethodField()
     purchase_unit = serializers.ChoiceField(choices=["boxes"], required=False)
 
@@ -53,8 +53,8 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
         return abs_url
 
     def create(self, validated_data):
-        # Capturar amount_boxes desde el payload original (no siempre entra en validated_data)
-        amount_boxes_val = self.initial_data.get("amount_boxes", None)
+        # Extraer amount_boxes del payload para aplicarlo al Product asociado
+        amount_boxes_val = validated_data.pop("amount_boxes", None)
         obj = super().create(validated_data)
         if amount_boxes_val is not None:
             try:
@@ -64,7 +64,7 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
         return obj
 
     def update(self, instance, validated_data):
-        amount_boxes_val = self.initial_data.get("amount_boxes", None)
+        amount_boxes_val = validated_data.pop("amount_boxes", None)
         obj = super().update(instance, validated_data)
         if amount_boxes_val is not None:
             try:
@@ -72,6 +72,15 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
             except Exception:
                 pass
         return obj
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Incluir amount_boxes desde el producto asociado en la salida
+        try:
+            data["amount_boxes"] = int(getattr(instance.product, "amount_boxes", 0) or 0)
+        except Exception:
+            data["amount_boxes"] = 0
+        return data
 
 
 class ProviderSerializer(serializers.ModelSerializer):
