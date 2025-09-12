@@ -172,15 +172,14 @@ class PurchaseOrderItem(models.Model):
     )
     quantity_units = models.PositiveIntegerField(default=0, help_text="Units to order")
     class PurchaseUnit(models.TextChoices):
-        UNITS = "units", "units"
         BOXES = "boxes", "boxes"
 
     purchase_unit = models.CharField(
         max_length=10,
         choices=PurchaseUnit.choices,
-        default=PurchaseUnit.UNITS,
+        default=PurchaseUnit.BOXES,
         db_index=True,
-        help_text="Unit expressed by the purchaser (no conversion)",
+        help_text="Unit expressed by the purchaser (boxes only)",
     )
     notes = models.CharField(max_length=200, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
