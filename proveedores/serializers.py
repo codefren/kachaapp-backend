@@ -11,6 +11,8 @@ from .models import (
 
 class PurchaseOrderItemSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)
+    # Hacemos este campo editable; escribirá en Product.amount_boxes
+    amount_boxes = serializers.IntegerField(source="product.amount_boxes", required=False)
     product_image = serializers.SerializerMethodField()
     purchase_unit = serializers.ChoiceField(choices=["boxes"], required=False)
 
@@ -19,6 +21,7 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "product",
+            "amount_boxes",
             "product_name",
             "product_image",
             "quantity_units",
@@ -48,6 +51,27 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
         if abs_url.startswith("http://"):
             abs_url = "https://" + abs_url[len("http://"):]
         return abs_url
+
+    def create(self, validated_data):
+        # Capturar amount_boxes desde el payload original (no siempre entra en validated_data)
+        amount_boxes_val = self.initial_data.get("amount_boxes", None)
+        obj = super().create(validated_data)
+        if amount_boxes_val is not None:
+            try:
+                Product.objects.filter(pk=obj.product_id).update(amount_boxes=int(amount_boxes_val))
+            except Exception:
+                pass
+        return obj
+
+    def update(self, instance, validated_data):
+        amount_boxes_val = self.initial_data.get("amount_boxes", None)
+        obj = super().update(instance, validated_data)
+        if amount_boxes_val is not None:
+            try:
+                Product.objects.filter(pk=obj.product_id).update(amount_boxes=int(amount_boxes_val))
+            except Exception:
+                pass
+        return obj
 
 
 class ProviderSerializer(serializers.ModelSerializer):
