@@ -134,6 +134,7 @@ class PurchaseOrder(models.Model):
         DRAFT = "DRAFT", "Draft"
         PLACED = "PLACED", "Placed"
         RECEIVED = "RECEIVED", "Received"
+        SHIPPED = "SHIPPED", "Shipped"
         CANCELED = "CANCELED", "Canceled"
 
     provider = models.ForeignKey(

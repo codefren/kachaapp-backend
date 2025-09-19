@@ -143,6 +143,29 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(obj)
         return Response(serializer.data)
 
+    @action(detail=False, methods=["get"], url_path="last-shipped")
+    def last_shipped(self, request):
+        """Devuelve la última orden en estado SHIPPED.
+
+        Si no existe ninguna, devuelve un mensaje informativo con HTTP 200.
+        """
+        qs = self.get_queryset().filter(status=PurchaseOrder.Status.SHIPPED, ordered_by=request.user)
+        # Filtro opcional por proveedor: ?provider=<id>
+        provider_id = request.query_params.get("provider")
+        if provider_id is not None:
+            try:
+                provider_id_int = int(provider_id)
+            except (TypeError, ValueError):
+                return Response({"detail": "El parámetro 'provider' debe ser un entero."}, status=status.HTTP_400_BAD_REQUEST)
+            qs = qs.filter(provider_id=provider_id_int)
+
+        qs = qs.order_by("-updated_at", "-created_at")
+        if not qs.exists():
+            return Response({"detail": "No existen órdenes enviadas."}, status=status.HTTP_200_OK)
+        obj = qs.first()
+        serializer = self.get_serializer(obj)
+        return Response(serializer.data)
+
 
 class PurchaseOrderItemViewSet(viewsets.ModelViewSet):
     queryset = PurchaseOrderItem.objects.select_related("order", "product").all()

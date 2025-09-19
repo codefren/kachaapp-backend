@@ -657,3 +657,75 @@ class ProveedoresAPITests(APITestCase):
         res_bad = self.client.get(f"/api/proveedores/purchase-orders/by-day/?date={day}&provider=abc")
         self.assertEqual(res_bad.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("detail", res_bad.data)
+
+    def test_last_shipped_returns_latest_for_authenticated_user(self):
+        from django.utils import timezone
+        from datetime import timedelta
+
+        # Crear dos órdenes SHIPPED para el usuario autenticado
+        po1 = PurchaseOrder.objects.create(provider=self.provider, ordered_by=self.user, status="SHIPPED")
+        po2 = PurchaseOrder.objects.create(provider=self.provider, ordered_by=self.user, status="SHIPPED")
+
+        # Forzar que po2 sea la más reciente por updated_at
+        newer = timezone.now()
+        older = newer - timedelta(minutes=5)
+        PurchaseOrder.objects.filter(id=po1.id).update(updated_at=older)
+        PurchaseOrder.objects.filter(id=po2.id).update(updated_at=newer)
+
+        url = "/api/proveedores/purchase-orders/last-shipped/"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(res.data, dict)
+        self.assertEqual(res.data.get("id"), po2.id)
+
+    def test_last_shipped_filters_by_provider(self):
+        from django.utils import timezone
+        from datetime import timedelta
+
+        other_provider = Provider.objects.create(name="Proveedor Z")
+
+        # Órdenes SHIPPED para distintos proveedores
+        po_main = PurchaseOrder.objects.create(provider=self.provider, ordered_by=self.user, status="SHIPPED")
+        po_other = PurchaseOrder.objects.create(provider=other_provider, ordered_by=self.user, status="SHIPPED")
+
+        # Asegurar que ambas tengan updated_at distinto
+        now = timezone.now()
+        PurchaseOrder.objects.filter(id=po_main.id).update(updated_at=now)
+        PurchaseOrder.objects.filter(id=po_other.id).update(updated_at=now)
+
+        base_url = "/api/proveedores/purchase-orders/last-shipped/"
+
+        # Filtro por provider principal
+        res_main = self.client.get(f"{base_url}?provider={self.provider.id}")
+        self.assertEqual(res_main.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(res_main.data, dict)
+        self.assertEqual(res_main.data.get("provider"), self.provider.id)
+
+        # Filtro por otro provider
+        res_other = self.client.get(f"{base_url}?provider={other_provider.id}")
+        self.assertEqual(res_other.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(res_other.data, dict)
+        self.assertEqual(res_other.data.get("provider"), other_provider.id)
+
+    def test_last_shipped_no_results_returns_message(self):
+        # No hay órdenes SHIPPED del usuario
+        url = "/api/proveedores/purchase-orders/last-shipped/"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(res.data, dict)
+        self.assertEqual(res.data.get("detail"), "No existen órdenes enviadas.")
+
+        # Crear una orden SHIPPED de otro usuario para verificar que no se devuelve
+        User = get_user_model()
+        other_user = User.objects.create_user(username="other", password="pass")
+        PurchaseOrder.objects.create(provider=self.provider, ordered_by=other_user, status="SHIPPED")
+
+        res2 = self.client.get(url)
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertEqual(res2.data.get("detail"), "No existen órdenes enviadas.")
+
+    def test_last_shipped_invalid_provider_param_returns_400(self):
+        url = "/api/proveedores/purchase-orders/last-shipped/?provider=abc"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", res.data)
