@@ -143,6 +143,86 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(obj)
         return Response(serializer.data)
 
+    @action(detail=False, methods=["post"], url_path="received-products")
+    def received_products(self, request):
+        """Recibe una lista de productos recibidos y devuelve los productos
+        de la última orden SHIPPED del usuario autenticado para un proveedor,
+        marcando cuáles se recibieron y cuáles faltan.
+
+        Entrada:
+        - Query param: provider=<id>
+        - Body JSON: {"products": [<product_id o barcode>, ...]}
+
+        Respuesta: lista de objetos con
+        { id, name, quantity_units, received: bool, missing: bool }
+        """
+        provider_id = request.query_params.get("provider")
+        if provider_id is None:
+            return Response({"detail": "El parámetro 'provider' es requerido."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            provider_id_int = int(provider_id)
+        except (TypeError, ValueError):
+            return Response({"detail": "El parámetro 'provider' debe ser un entero."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Obtener última orden SHIPPED del usuario y proveedor
+        po_qs = (
+            self.get_queryset()
+            .filter(status=PurchaseOrder.Status.SHIPPED, ordered_by=request.user, provider_id=provider_id_int)
+            .order_by("-updated_at", "-created_at")
+        )
+        if not po_qs.exists():
+            return Response({"detail": "No existen órdenes enviadas para este proveedor."}, status=status.HTTP_200_OK)
+        po = po_qs.first()
+
+        # Construir set de productos recibidos a partir del payload (IDs o barcodes)
+        payload_list = request.data.get("products", []) or []
+        received_ids: set[int] = set()
+        if not isinstance(payload_list, (list, tuple)):
+            return Response({"detail": "El cuerpo debe incluir 'products' como lista."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Resolver entradas: si es entero -> product_id; si es string -> intentar como barcode
+        from .models import ProductBarcode
+
+        for entry in payload_list:
+            # Intentar convertir a int para tratar como product_id
+            pid = None
+            if isinstance(entry, int):
+                pid = entry
+            else:
+                # Podría venir como string de número o un barcode alfanumérico
+                if isinstance(entry, str):
+                    try:
+                        pid = int(entry)
+                    except (TypeError, ValueError):
+                        # Buscar por barcode exacto
+                        bc = ProductBarcode.objects.filter(code=entry).only("product_id").first()
+                        if bc:
+                            pid = bc.product_id
+            if pid is not None:
+                received_ids.add(int(pid))
+
+        # Recorrer los productos de la orden
+        items = (
+            PurchaseOrderItem.objects.select_related("product")
+            .filter(order=po)
+            .order_by("product__name")
+        )
+        result = []
+        for it in items:
+            pid = it.product_id
+            is_received = pid in received_ids
+            result.append(
+                {
+                    "id": pid,
+                    "name": it.product.name,
+                    "quantity_units": it.quantity_units,
+                    "received": is_received,
+                    "missing": not is_received,
+                }
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
+
     @action(detail=False, methods=["get"], url_path="last-shipped")
     def last_shipped(self, request):
         """Devuelve la última orden en estado SHIPPED.

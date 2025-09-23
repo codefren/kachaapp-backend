@@ -85,6 +85,7 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
 
 class ProviderSerializer(serializers.ModelSerializer):
     products_count = serializers.IntegerField(source="products.count", read_only=True)
+    has_received_orders = serializers.SerializerMethodField()
 
     class Meta:
         model = Provider
@@ -94,7 +95,16 @@ class ProviderSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "products_count",
+            "has_received_orders",
         )
+
+    def get_has_received_orders(self, obj):
+        """Retorna True si el proveedor tiene al menos una orden de compra en estado RECEIVED."""
+        from .models import PurchaseOrder
+        return PurchaseOrder.objects.filter(
+            provider=obj,
+            status=PurchaseOrder.Status.RECEIVED
+        ).exists()
 
 
 class ProductBarcodeSerializer(serializers.ModelSerializer):
