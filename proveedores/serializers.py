@@ -86,6 +86,7 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
 class ProviderSerializer(serializers.ModelSerializer):
     products_count = serializers.IntegerField(source="products.count", read_only=True)
     has_received_orders = serializers.SerializerMethodField()
+    order_available_dates = serializers.SerializerMethodField()
 
     class Meta:
         model = Provider
@@ -94,6 +95,7 @@ class ProviderSerializer(serializers.ModelSerializer):
             "name",
             "order_deadline_time",
             "order_available_weekdays",
+            "order_available_dates",
             "created_at",
             "updated_at",
             "products_count",
@@ -105,8 +107,42 @@ class ProviderSerializer(serializers.ModelSerializer):
         from .models import PurchaseOrder
         return PurchaseOrder.objects.filter(
             provider=obj,
-            status=PurchaseOrder.Status.RECEIVED
+            status=PurchaseOrder.Status.PLACED
         ).exists()
+
+    def get_order_available_dates(self, obj):
+        """Retorna las fechas de la próxima semana donde el proveedor acepta pedidos con el nombre del día."""
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        if not obj.order_available_weekdays:
+            return []
+        
+        # Nombres de días en español
+        weekday_names = {
+            0: 'Lunes',
+            1: 'Martes', 
+            2: 'Miércoles',
+            3: 'Jueves',
+            4: 'Viernes',
+            5: 'Sábado',
+            6: 'Domingo'
+        }
+
+        today = timezone.now().date()
+        dates = []
+
+        # Buscar las próximas fechas en los próximos 7 días
+        for i in range(7):
+            check_date = today + timedelta(days=i)
+            weekday = check_date.weekday()  # 0=Lunes, 6=Domingo
+
+            if weekday in obj.order_available_weekdays:
+                day_name = weekday_names[weekday]
+                formatted_date = check_date.strftime('%d/%m/%Y')
+                dates.append(f"{day_name} {formatted_date}")
+
+        return dates
 
 
 class ProductBarcodeSerializer(serializers.ModelSerializer):
