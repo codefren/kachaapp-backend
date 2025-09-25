@@ -277,6 +277,19 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
             name_q = request.query_params.get("name") or request.query_params.get("q")
             if name_q:
                 qs = qs.filter(name__icontains=name_q)
+
+            # Ordenamiento por nombre: ?ordering=name (ascendente) o ?ordering=-name (descendente)
+            ordering = request.query_params.get("ordering")
+            if ordering == "name":
+                qs = qs.order_by("name")
+            elif ordering == "-name":
+                qs = qs.order_by("-name")
+            else:
+                # Orden por defecto: nombre ascendente
+                qs = qs.order_by("name")
+        else:
+            qs = qs.order_by("name")
+
         return qs.distinct()
 
     @action(detail=True, methods=["post"], url_path="favorite")

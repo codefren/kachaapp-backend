@@ -973,3 +973,30 @@ class ProveedoresAPITests(APITestCase):
             }
             self.assertEqual(day_name, expected_names[weekday],
                            f"El nombre del día '{day_name}' no coincide con el weekday {weekday}")
+
+    def test_products_ordering_parameter(self):
+        """Test que verifica el parámetro ordering en el endpoint de productos."""
+        # Crear productos adicionales para probar ordenamiento
+        Product.objects.create(name="Zebra Product", sku="SKU-Z")
+        Product.objects.create(name="Alpha Product", sku="SKU-A")
+        
+        # Test 1: Ordenamiento ascendente por nombre (por defecto)
+        url = "/api/products/"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        names = [product["name"] for product in res.data]
+        self.assertEqual(names, sorted(names))  # Debe estar ordenado ascendente
+        
+        # Test 2: Ordenamiento ascendente explícito
+        url = "/api/products/?ordering=name"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        names = [product["name"] for product in res.data]
+        self.assertEqual(names, sorted(names))  # Debe estar ordenado ascendente
+        
+        # Test 3: Ordenamiento descendente por nombre
+        url = "/api/products/?ordering=-name"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        names = [product["name"] for product in res.data]
+        self.assertEqual(names, sorted(names, reverse=True))  # Debe estar ordenado descendente
