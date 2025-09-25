@@ -9,11 +9,17 @@ from proveedores.models import Provider, Product, PurchaseOrder, PurchaseOrderIt
 
 class ProveedoresAPITests(APITestCase):
     def setUp(self):
+        from datetime import time
+
         User = get_user_model()
         self.user = User.objects.create_user(username="tester", password="pass1234")
         # Autenticar todas las peticiones del cliente de prueba
         self.client.force_authenticate(user=self.user)
-        self.provider = Provider.objects.create(name="Proveedor A")
+        self.provider = Provider.objects.create(
+            name="Proveedor A",
+            order_deadline_time=time(14, 30),
+            order_available_weekdays=[0, 1, 2, 3, 4]  # Lun-Vie
+        )
         self.product1 = Product.objects.create(name="Producto 1", sku="SKU-1")
         self.product1.providers.add(self.provider)
         self.product2 = Product.objects.create(name="Producto 2", sku="SKU-2")
@@ -408,9 +414,15 @@ class ProveedoresAPITests(APITestCase):
         self.assertTrue(res2.data.get("has_ordered_today"))
 
     def test_has_ordered_today_with_provider_filter(self):
+        from datetime import time
+
         base_url = "/api/purchase-orders/has-ordered-today/"
         # Crear otra proveedor
-        other_provider = Provider.objects.create(name="Proveedor B")
+        other_provider = Provider.objects.create(
+            name="Proveedor B",
+            order_deadline_time=time(16, 0),
+            order_available_weekdays=[0, 1, 2, 3, 4]
+        )
         # Crear una orden hoy con provider principal
         create_url = "/api/purchase-orders/"
         payload = {
@@ -617,10 +629,14 @@ class ProveedoresAPITests(APITestCase):
     
     def test_purchase_order_queryset_for_by_day_and_provider(self):
         from django.utils import timezone
-        from datetime import timedelta
+        from datetime import timedelta, time
 
         # Crear otro proveedor
-        other_provider = Provider.objects.create(name="Proveedor C")
+        other_provider = Provider.objects.create(
+            name="Proveedor C",
+            order_deadline_time=time(17, 0),
+            order_available_weekdays=[1, 2, 3]
+        )
 
         # Crear dos órdenes hoy: una para provider principal (más antigua) y otra para el otro provider (más reciente)
         po1 = PurchaseOrder.objects.create(provider=self.provider, ordered_by=self.user, status="PLACED")
@@ -671,9 +687,13 @@ class ProveedoresAPITests(APITestCase):
 
     def test_last_shipped_filters_by_provider(self):
         from django.utils import timezone
-        from datetime import timedelta
+        from datetime import timedelta, time
 
-        other_provider = Provider.objects.create(name="Proveedor Z")
+        other_provider = Provider.objects.create(
+            name="Proveedor Z",
+            order_deadline_time=time(18, 0),
+            order_available_weekdays=[0, 2, 4]
+        )
 
         # Órdenes SHIPPED para distintos proveedores
         po_main = PurchaseOrder.objects.create(provider=self.provider, ordered_by=self.user, status="SHIPPED")
@@ -854,6 +874,10 @@ class ProveedoresAPITests(APITestCase):
         self.assertEqual(res.data["order_deadline_time"], "14:30:00")
         self.assertEqual(res.data["order_available_weekdays"], [0, 1, 2, 3, 4])
 
+        # Verificar que el campo order_available_dates está presente
+        self.assertIn("order_available_dates", res.data)
+        self.assertIsInstance(res.data["order_available_dates"], list)
+
         # Verificar también en la lista de proveedores
         list_url = "/api/providers/"
         res_list = self.client.get(list_url)
@@ -885,3 +909,67 @@ class ProveedoresAPITests(APITestCase):
         # Verificar que no pueden ser nulos
         self.assertIsNotNone(res.data["order_deadline_time"])
         self.assertIsNotNone(res.data["order_available_weekdays"])
+
+    def test_provider_order_available_dates_format(self):
+        """Test que verifica el formato correcto de las fechas en order_available_dates."""
+        from datetime import time, datetime
+        import re
+
+        # Configurar proveedor con días específicos
+        self.provider.order_available_weekdays = [1, 3, 5]  # Martes, Jueves, Sábado
+        self.provider.order_deadline_time = time(15, 0)
+        self.provider.save()
+
+        url = f"/api/providers/{self.provider.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # Verificar que el campo existe y es una lista
+        self.assertIn("order_available_dates", res.data)
+        dates = res.data["order_available_dates"]
+        self.assertIsInstance(dates, list)
+
+        # Patrón regex para formato "Día DD/MM/YYYY"
+        date_pattern = re.compile(r'^(Lunes|Martes|Miércoles|Jueves|Viernes|Sábado|Domingo) \d{2}/\d{2}/\d{4}$')
+
+        # Verificar que todas las fechas tienen el formato correcto
+        for date_str in dates:
+            self.assertIsInstance(date_str, str)
+            self.assertTrue(date_pattern.match(date_str), 
+                          f"Fecha '{date_str}' no tiene el formato 'Día DD/MM/YYYY'")
+
+        # Verificar que las fechas están ordenadas cronológicamente
+        if len(dates) > 1:
+            # Extraer solo las fechas para comparar cronológicamente
+            date_objects = []
+            for date_str in dates:
+                date_part = date_str.split(' ')[1]  # Obtener "DD/MM/YYYY"
+                date_obj = datetime.strptime(date_part, '%d/%m/%Y').date()
+                date_objects.append(date_obj)
+
+            for i in range(1, len(date_objects)):
+                self.assertGreater(date_objects[i], date_objects[i-1], 
+                                 "Las fechas deben estar ordenadas cronológicamente")
+
+        # Verificar que no hay fechas duplicadas
+        self.assertEqual(len(dates), len(set(dates)), 
+                        "No debe haber fechas duplicadas")
+
+        # Verificar que las fechas corresponden a los días configurados
+        for date_str in dates:
+            # Extraer solo la parte de la fecha del string "Día DD/MM/YYYY"
+            date_part = date_str.split(' ')[1]  # Obtener "DD/MM/YYYY"
+            date_obj = datetime.strptime(date_part, '%d/%m/%Y').date()
+            weekday = date_obj.weekday()
+            self.assertIn(weekday, self.provider.order_available_weekdays,
+                         f"La fecha {date_str} (día {weekday}) no está en los días configurados")
+            
+            # Verificar que el nombre del día coincide con el weekday
+            day_name = date_str.split(' ')[0]  # Obtener "Día"
+            expected_names = {
+                0: 'Lunes', 1: 'Martes', 2: 'Miércoles', 3: 'Jueves',
+                4: 'Viernes', 5: 'Sábado', 6: 'Domingo'
+            }
+            self.assertEqual(day_name, expected_names[weekday],
+                           f"El nombre del día '{day_name}' no coincide con el weekday {weekday}")

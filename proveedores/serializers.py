@@ -107,7 +107,7 @@ class ProviderSerializer(serializers.ModelSerializer):
         from .models import PurchaseOrder
         return PurchaseOrder.objects.filter(
             provider=obj,
-            status=PurchaseOrder.Status.PLACED
+            status=PurchaseOrder.Status.RECEIVED
         ).exists()
 
     def get_order_available_dates(self, obj):
