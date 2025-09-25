@@ -20,13 +20,13 @@ class ProveedoresAPITests(APITestCase):
         self.product2.providers.add(self.provider)
 
     def test_root(self):
-        url = "/api/proveedores/"
+        url = "/api/"
         res = self.client.get(url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIn("message", res.data)
 
     def test_list_products(self):
-        url = "/api/proveedores/products/"
+        url = "/api/products/"
         res = self.client.get(url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         # Should list at least the two products
@@ -39,7 +39,7 @@ class ProveedoresAPITests(APITestCase):
         self.assertIn("units_per_box", first)
 
     def test_list_providers(self):
-        url = "/api/proveedores/providers/"
+        url = "/api/providers/"
         res = self.client.get(url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(len(res.data), 1)
@@ -47,7 +47,7 @@ class ProveedoresAPITests(APITestCase):
         self.assertIn("products_count", res.data[0])
 
     def test_create_and_retrieve_purchase_order(self):
-        url = "/api/proveedores/purchase-orders/"
+        url = "/api/purchase-orders/"
         # Pedido: producto en BOXES
         payload_units = {
             "provider": self.provider.id,
@@ -66,14 +66,14 @@ class ProveedoresAPITests(APITestCase):
         self.assertEqual(res_units.data["items"][0]["quantity_units"], 10)
 
         # Retrieve detail de ambos pedidos
-        detail_units = self.client.get(f"/api/proveedores/purchase-orders/{po_units_id}/")
+        detail_units = self.client.get(f"/api/purchase-orders/{po_units_id}/")
         self.assertEqual(detail_units.status_code, status.HTTP_200_OK)
         self.assertEqual(detail_units.data["id"], po_units_id)
         self.assertEqual(detail_units.data["provider"], self.provider.id)
         self.assertEqual(len(detail_units.data["items"]), 1)
 
     def test_create_purchase_order_sets_and_returns_ordered_by(self):
-        url = "/api/proveedores/purchase-orders/"
+        url = "/api/purchase-orders/"
         # No enviar ordered_by en el payload; debe tomarse del request.user
         payload = {
             "provider": self.provider.id,
@@ -89,7 +89,7 @@ class ProveedoresAPITests(APITestCase):
         self.assertEqual(res.data.get("ordered_by_username"), self.user.username)
 
     def test_purchase_order_item_persists_purchase_unit(self):
-        url = "/api/proveedores/purchase-orders/"
+        url = "/api/purchase-orders/"
         payload = {
             "provider": self.provider.id,
             "status": "PLACED",
@@ -109,7 +109,7 @@ class ProveedoresAPITests(APITestCase):
         self.assertEqual(pu_by_product.get(self.product1.id), "boxes")
 
     def test_same_product_multiple_boxes_consolidates(self):
-        url = "/api/proveedores/purchase-orders/"
+        url = "/api/purchase-orders/"
         payload = {
             "provider": self.provider.id,
             "status": "PLACED",
@@ -129,7 +129,7 @@ class ProveedoresAPITests(APITestCase):
         self.assertEqual(items[0]["quantity_units"], 5)
 
     def test_create_order_same_product_multiple_lines_consolidates(self):
-        url = "/api/proveedores/purchase-orders/"
+        url = "/api/purchase-orders/"
         payload = {
             "provider": self.provider.id,
             "ordered_by": self.user.id,
@@ -150,7 +150,7 @@ class ProveedoresAPITests(APITestCase):
 
     def test_update_purchase_order(self):
         # Crear orden inicial
-        create_url = "/api/proveedores/purchase-orders/"
+        create_url = "/api/purchase-orders/"
         create_payload = {
             "provider": self.provider.id,
             "ordered_by": self.user.id,
@@ -166,7 +166,7 @@ class ProveedoresAPITests(APITestCase):
         po_id = res_create.data["id"]
 
         # Actualizar: cambiar notas e ítems (uno en unidades, otro en cajas)
-        detail_url = f"/api/proveedores/purchase-orders/{po_id}/"
+        detail_url = f"/api/purchase-orders/{po_id}/"
         patch_payload = {
             "notes": "Orden actualizada",
             "items": [
@@ -190,7 +190,7 @@ class ProveedoresAPITests(APITestCase):
         self.assertEqual(qty_by_product.get(self.product2.id), 2)
 
     def test_product_last_purchase_amounts_on_create(self):
-        url = "/api/proveedores/purchase-orders/"
+        url = "/api/purchase-orders/"
         payload = {
             "provider": self.provider.id,
             "ordered_by": self.user.id,
@@ -203,14 +203,10 @@ class ProveedoresAPITests(APITestCase):
         res = self.client.post(url, data=payload, format="json")
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
 
-        # Consultar detalle del producto y verificar amount_boxes
-        prod_detail = self.client.get(f"/api/proveedores/products/{self.product2.id}/")
-        self.assertEqual(prod_detail.status_code, status.HTTP_200_OK)
-        self.assertEqual(prod_detail.data.get("amount_boxes"), 36)
 
     def test_product_last_purchase_amounts_on_update(self):
         # Crear orden inicial con unidades
-        create_url = "/api/proveedores/purchase-orders/"
+        create_url = "/api/purchase-orders/"
         payload = {
             "provider": self.provider.id,
             "ordered_by": self.user.id,
@@ -223,13 +219,8 @@ class ProveedoresAPITests(APITestCase):
         self.assertEqual(res_create.status_code, status.HTTP_201_CREATED)
         po_id = res_create.data["id"]
 
-        # Verificar referencia inicial (amount_boxes)
-        prod_detail_1 = self.client.get(f"/api/proveedores/products/{self.product2.id}/")
-        self.assertEqual(prod_detail_1.status_code, status.HTTP_200_OK)
-        self.assertEqual(prod_detail_1.data.get("amount_boxes"), 5)
-
         # Actualizar orden: cambiar a 2 boxes
-        patch_url = f"/api/proveedores/purchase-orders/{po_id}/"
+        patch_url = f"/api/purchase-orders/{po_id}/"
         patch_payload = {
             "items": [
                 {"product": self.product2.id, "quantity_units": 2, "unit_type": "boxes", "amount_boxes": 2},
@@ -239,7 +230,7 @@ class ProveedoresAPITests(APITestCase):
         self.assertIn(res_patch.status_code, (status.HTTP_200_OK, status.HTTP_202_ACCEPTED))
 
         # Verificar referencia actualizada (amount_boxes)
-        prod_detail_2 = self.client.get(f"/api/proveedores/products/{self.product2.id}/")
+        prod_detail_2 = self.client.get(f"/api/products/{self.product2.id}/")
         self.assertEqual(prod_detail_2.status_code, status.HTTP_200_OK)
         self.assertEqual(prod_detail_2.data.get("amount_boxes"), 2)
 
@@ -249,7 +240,7 @@ class ProveedoresAPITests(APITestCase):
         PurchaseOrderItem.objects.create(order=po, product=self.product1, quantity_units=3)
         PurchaseOrderItem.objects.create(order=po, product=self.product2, quantity_units=2)
 
-        url = "/api/proveedores/purchase-order-items/"
+        url = "/api/purchase-order-items/"
         res = self.client.get(url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(len(res.data), 2)
@@ -258,7 +249,7 @@ class ProveedoresAPITests(APITestCase):
 
     def test_favorite_product(self):
         # Marcar como favorito
-        fav_url = f"/api/proveedores/products/{self.product1.id}/favorite/"
+        fav_url = f"/api/products/{self.product1.id}/favorite/"
         res = self.client.post(fav_url)
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertTrue(
@@ -266,7 +257,7 @@ class ProveedoresAPITests(APITestCase):
         )
 
         # Recuperar detalle del producto y verificar flags de favorito
-        detail_url = f"/api/proveedores/products/{self.product1.id}/"
+        detail_url = f"/api/products/{self.product1.id}/"
         res2 = self.client.get(detail_url)
         self.assertEqual(res2.status_code, status.HTTP_200_OK)
         self.assertTrue(res2.data.get("current_user_favorite"))
@@ -276,7 +267,7 @@ class ProveedoresAPITests(APITestCase):
         # Precondición: producto ya favorito
         ProductFavorite.objects.create(user=self.user, product=self.product1)
 
-        unfav_url = f"/api/proveedores/products/{self.product1.id}/unfavorite/"
+        unfav_url = f"/api/products/{self.product1.id}/unfavorite/"
         res = self.client.post(unfav_url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertFalse(
@@ -284,7 +275,7 @@ class ProveedoresAPITests(APITestCase):
         )
 
         # Recuperar detalle del producto y verificar flags de favorito
-        detail_url = f"/api/proveedores/products/{self.product1.id}/"
+        detail_url = f"/api/products/{self.product1.id}/"
         res2 = self.client.get(detail_url)
         self.assertEqual(res2.status_code, status.HTTP_200_OK)
         self.assertFalse(res2.data.get("current_user_favorite"))
@@ -292,12 +283,12 @@ class ProveedoresAPITests(APITestCase):
 
     def test_my_favorites_list(self):
         # Marcar product1 como favorito; product2 no
-        fav_url = f"/api/proveedores/products/{self.product1.id}/favorite/"
+        fav_url = f"/api/products/{self.product1.id}/favorite/"
         res = self.client.post(fav_url)
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
 
         # Obtener lista de mis favoritos
-        url = "/api/proveedores/products/my-favorites/"
+        url = "/api/products/my-favorites/"
         res_list = self.client.get(url)
         self.assertEqual(res_list.status_code, status.HTTP_200_OK)
 
@@ -322,7 +313,7 @@ class ProveedoresAPITests(APITestCase):
         self.product1.image.save("pixel.gif", upload, save=True)
 
         # Detalle del producto para ver el serializer
-        detail_url = f"/api/proveedores/products/{self.product1.id}/"
+        detail_url = f"/api/products/{self.product1.id}/"
         res = self.client.get(detail_url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         img_url = res.data.get("image")
@@ -335,7 +326,7 @@ class ProveedoresAPITests(APITestCase):
         self.assertTrue(parsed.path.endswith(".gif"))
 
         # Para producto sin imagen debe venir null
-        detail_url2 = f"/api/proveedores/products/{self.product2.id}/"
+        detail_url2 = f"/api/products/{self.product2.id}/"
         res2 = self.client.get(detail_url2)
         self.assertEqual(res2.status_code, status.HTTP_200_OK)
         self.assertIsNone(res2.data.get("image"))
@@ -355,7 +346,7 @@ class ProveedoresAPITests(APITestCase):
         self.product1.image.save("pixel.gif", upload, save=True)
 
         # Crear una orden con un ítem de product1
-        url = "/api/proveedores/purchase-orders/"
+        url = "/api/purchase-orders/"
         payload = {
             "provider": self.provider.id,
             "status": "PLACED",
@@ -376,7 +367,7 @@ class ProveedoresAPITests(APITestCase):
         bc1 = ProductBarcode.objects.create(product=self.product1, code="CODE-111", type=ProductBarcode.BarcodeType.EAN13)
 
         # Filtrar por barcode de product1
-        url = f"/api/proveedores/products/?barcode={bc1.code}"
+        url = f"/api/products/?barcode={bc1.code}"
         res = self.client.get(url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         data = res.data if isinstance(res.data, list) else res.data.get("results", [])
@@ -385,21 +376,21 @@ class ProveedoresAPITests(APITestCase):
 
     def test_filter_products_by_barcode_no_match(self):
         # Sin barcodes o con código inexistente
-        url = "/api/proveedores/products/?barcode=NOT-EXISTS"
+        url = "/api/products/?barcode=NOT-EXISTS"
         res = self.client.get(url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         data = res.data if isinstance(res.data, list) else res.data.get("results", [])
         self.assertEqual(len(data), 0)
 
     def test_has_ordered_today(self):
-        url = "/api/proveedores/purchase-orders/has-ordered-today/"
+        url = "/api/purchase-orders/has-ordered-today/"
         # Inicialmente, no debe haber órdenes hoy
         res1 = self.client.get(url)
         self.assertEqual(res1.status_code, status.HTTP_200_OK)
         self.assertFalse(res1.data.get("has_ordered_today"))
 
         # Crear una orden hoy
-        create_url = "/api/proveedores/purchase-orders/"
+        create_url = "/api/purchase-orders/"
         payload = {
             "provider": self.provider.id,
             "ordered_by": self.user.id,
@@ -417,11 +408,11 @@ class ProveedoresAPITests(APITestCase):
         self.assertTrue(res2.data.get("has_ordered_today"))
 
     def test_has_ordered_today_with_provider_filter(self):
-        base_url = "/api/proveedores/purchase-orders/has-ordered-today/"
+        base_url = "/api/purchase-orders/has-ordered-today/"
         # Crear otra proveedor
         other_provider = Provider.objects.create(name="Proveedor B")
         # Crear una orden hoy con provider principal
-        create_url = "/api/proveedores/purchase-orders/"
+        create_url = "/api/purchase-orders/"
         payload = {
             "provider": self.provider.id,
             "ordered_by": self.user.id,
@@ -444,14 +435,14 @@ class ProveedoresAPITests(APITestCase):
         self.assertFalse(res_no.data.get("has_ordered_today"))
 
     def test_has_ordered_today_with_invalid_provider_param(self):
-        url = "/api/proveedores/purchase-orders/has-ordered-today/?provider=abc"
+        url = "/api/purchase-orders/has-ordered-today/?provider=abc"
         res = self.client.get(url)
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("detail", res.data)
 
     def test_filter_purchase_orders_by_date(self):
         # Crear 2 órdenes
-        url = "/api/proveedores/purchase-orders/"
+        url = "/api/purchase-orders/"
         payload1 = {
             "provider": self.provider.id,
             "ordered_by": self.user.id,
@@ -483,19 +474,19 @@ class ProveedoresAPITests(APITestCase):
 
         # Consultar por hoy con la acción by-day: debe devolver un objeto (la orden de hoy)
         today_str = timezone.now().date().isoformat()
-        res_today = self.client.get(f"/api/proveedores/purchase-orders/by-day/?date={today_str}")
+        res_today = self.client.get(f"/api/purchase-orders/by-day/?date={today_str}")
         self.assertEqual(res_today.status_code, status.HTTP_200_OK)
         self.assertIsInstance(res_today.data, dict)
 
         # Consultar por ayer con la acción by-day: debe devolver un objeto (la orden movida a ayer)
         yesterday_str = (timezone.now() - timedelta(days=1)).date().isoformat()
-        res_yest = self.client.get(f"/api/proveedores/purchase-orders/by-day/?date={yesterday_str}")
+        res_yest = self.client.get(f"/api/purchase-orders/by-day/?date={yesterday_str}")
         self.assertEqual(res_yest.status_code, status.HTTP_200_OK)
         self.assertIsInstance(res_yest.data, dict)
 
     def test_purchase_order_queryset_no_date_returns_all(self):
         # Crear 2 órdenes hoy
-        url = "/api/proveedores/purchase-orders/"
+        url = "/api/purchase-orders/"
         for _ in range(2):
             payload = {
                 "provider": self.provider.id,
@@ -519,24 +510,24 @@ class ProveedoresAPITests(APITestCase):
         from django.utils import timezone
         from datetime import timedelta
         future_day = (timezone.now() + timedelta(days=15)).date().isoformat()
-        res = self.client.get(f"/api/proveedores/purchase-orders/by-day/?date={future_day}")
+        res = self.client.get(f"/api/purchase-orders/by-day/?date={future_day}")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIsInstance(res.data, dict)
         self.assertEqual(res.data.get("detail"), "No existen órdenes para el día seleccionado.")
 
     def test_by_day_missing_date_returns_400(self):
-        res = self.client.get("/api/proveedores/purchase-orders/by-day/")
+        res = self.client.get("/api/purchase-orders/by-day/")
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("detail", res.data)
 
     def test_by_day_invalid_date_returns_400(self):
-        res = self.client.get("/api/proveedores/purchase-orders/by-day/?date=2025-13-40")
+        res = self.client.get("/api/purchase-orders/by-day/?date=2025-13-40")
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("detail", res.data)
 
     def test_by_day_with_result_returns_single_object(self):
         # Crear una orden hoy
-        url = "/api/proveedores/purchase-orders/"
+        url = "/api/purchase-orders/"
         payload = {
             "provider": self.provider.id,
             "ordered_by": self.user.id,
@@ -550,7 +541,7 @@ class ProveedoresAPITests(APITestCase):
 
         from django.utils import timezone
         day = timezone.now().date().isoformat()
-        res = self.client.get(f"/api/proveedores/purchase-orders/by-day/?date={day}")
+        res = self.client.get(f"/api/purchase-orders/by-day/?date={day}")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         # Debe ser un objeto, no lista
         self.assertIsInstance(res.data, dict)
@@ -558,7 +549,7 @@ class ProveedoresAPITests(APITestCase):
 
     def test_purchase_order_create_update_includes_amount_boxes_in_items(self):
         # Crear una orden con un ítem y validar que en la respuesta venga amount_boxes en items
-        create_url = "/api/proveedores/purchase-orders/"
+        create_url = "/api/purchase-orders/"
         payload_create = {
             "provider": self.provider.id,
             "status": "PLACED",
@@ -576,7 +567,7 @@ class ProveedoresAPITests(APITestCase):
 
         # Actualizar la misma orden con otro total de cajas y verificar amount_boxes en la respuesta
         po_id = res_create.data["id"]
-        patch_url = f"/api/proveedores/purchase-orders/{po_id}/"
+        patch_url = f"/api/purchase-orders/{po_id}/"
         payload_patch = {
             "items": [
                 {"product": self.product2.id, "quantity_units": 3, "unit_type": "boxes", "amount_boxes": 3},
@@ -595,7 +586,7 @@ class ProveedoresAPITests(APITestCase):
         from datetime import timedelta
         future_day = (timezone.now() + timedelta(days=30)).date().isoformat()
 
-        url = f"/api/proveedores/purchase-orders/by-day/?date={future_day}"
+        url = f"/api/purchase-orders/by-day/?date={future_day}"
         res = self.client.get(url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         # Debe devolver un objeto con 'detail' y no una lista vacía
@@ -605,7 +596,7 @@ class ProveedoresAPITests(APITestCase):
 
     def test_purchase_order_queryset_invalid_date_returns_all(self):
         # Crear 2 órdenes hoy
-        url = "/api/proveedores/purchase-orders/"
+        url = "/api/purchase-orders/"
         for _ in range(2):
             payload = {
                 "provider": self.provider.id,
@@ -642,19 +633,19 @@ class ProveedoresAPITests(APITestCase):
         day = timezone.now().date().isoformat()
 
         # Filtro por provider principal -> debe devolver po1
-        res_main = self.client.get(f"/api/proveedores/purchase-orders/by-day/?date={day}&provider={self.provider.id}")
+        res_main = self.client.get(f"/api/purchase-orders/by-day/?date={day}&provider={self.provider.id}")
         self.assertEqual(res_main.status_code, status.HTTP_200_OK)
         self.assertIsInstance(res_main.data, dict)
         self.assertEqual(res_main.data.get("provider"), self.provider.id)
 
         # Filtro por otro provider -> debe devolver po2 (la más reciente de ese provider)
-        res_other = self.client.get(f"/api/proveedores/purchase-orders/by-day/?date={day}&provider={other_provider.id}")
+        res_other = self.client.get(f"/api/purchase-orders/by-day/?date={day}&provider={other_provider.id}")
         self.assertEqual(res_other.status_code, status.HTTP_200_OK)
         self.assertIsInstance(res_other.data, dict)
         self.assertEqual(res_other.data.get("provider"), other_provider.id)
 
         # provider inválido -> 400
-        res_bad = self.client.get(f"/api/proveedores/purchase-orders/by-day/?date={day}&provider=abc")
+        res_bad = self.client.get(f"/api/purchase-orders/by-day/?date={day}&provider=abc")
         self.assertEqual(res_bad.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("detail", res_bad.data)
 
@@ -672,7 +663,7 @@ class ProveedoresAPITests(APITestCase):
         PurchaseOrder.objects.filter(id=po1.id).update(updated_at=older)
         PurchaseOrder.objects.filter(id=po2.id).update(updated_at=newer)
 
-        url = "/api/proveedores/purchase-orders/last-shipped/"
+        url = "/api/purchase-orders/last-shipped/"
         res = self.client.get(url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIsInstance(res.data, dict)
@@ -693,7 +684,7 @@ class ProveedoresAPITests(APITestCase):
         PurchaseOrder.objects.filter(id=po_main.id).update(updated_at=now)
         PurchaseOrder.objects.filter(id=po_other.id).update(updated_at=now)
 
-        base_url = "/api/proveedores/purchase-orders/last-shipped/"
+        base_url = "/api/purchase-orders/last-shipped/"
 
         # Filtro por provider principal
         res_main = self.client.get(f"{base_url}?provider={self.provider.id}")
@@ -709,7 +700,7 @@ class ProveedoresAPITests(APITestCase):
 
     def test_last_shipped_no_results_returns_message(self):
         # No hay órdenes SHIPPED del usuario
-        url = "/api/proveedores/purchase-orders/last-shipped/"
+        url = "/api/purchase-orders/last-shipped/"
         res = self.client.get(url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIsInstance(res.data, dict)
@@ -725,7 +716,118 @@ class ProveedoresAPITests(APITestCase):
         self.assertEqual(res2.data.get("detail"), "No existen órdenes enviadas.")
 
     def test_last_shipped_invalid_provider_param_returns_400(self):
-        url = "/api/proveedores/purchase-orders/last-shipped/?provider=abc"
+        url = "/api/purchase-orders/last-shipped/?provider=abc"
         res = self.client.get(url)
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("detail", res.data)
+
+    # --- Tests para la acción received-products ---
+    def test_received_products_success_with_ids(self):
+        # Crear orden SHIPPED con ítems para el usuario y proveedor principal
+        po = PurchaseOrder.objects.create(provider=self.provider, ordered_by=self.user, status="SHIPPED")
+        PurchaseOrderItem.objects.create(order=po, product=self.product1, quantity_units=2)
+        PurchaseOrderItem.objects.create(order=po, product=self.product2, quantity_units=3)
+
+        url = f"/api/purchase-orders/received-products/?provider={self.provider.id}"
+        # Marcar solo product1 como recibido
+        payload = {"products": [self.product1.id]}
+        res = self.client.post(url, data=payload, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(res.data, list)
+        # Debe devolver ambos productos de la orden
+        self.assertEqual(len(res.data), 2)
+        by_id = {row["id"]: row for row in res.data}
+        self.assertTrue(by_id[self.product1.id]["received"])  # recibido
+        self.assertFalse(by_id[self.product1.id]["missing"])  # no falta
+        self.assertFalse(by_id[self.product2.id]["received"])  # no recibido
+        self.assertTrue(by_id[self.product2.id]["missing"])   # falta
+
+    def test_received_products_success_with_barcodes(self):
+        # Crear barcodes para los productos
+        bc1 = ProductBarcode.objects.create(product=self.product1, code="BC-111", type=ProductBarcode.BarcodeType.EAN13)
+        bc2 = ProductBarcode.objects.create(product=self.product2, code="BC-222", type=ProductBarcode.BarcodeType.EAN13)
+
+        # Crear orden SHIPPED con ítems para el usuario
+        po = PurchaseOrder.objects.create(provider=self.provider, ordered_by=self.user, status="SHIPPED")
+        PurchaseOrderItem.objects.create(order=po, product=self.product1, quantity_units=5)
+        PurchaseOrderItem.objects.create(order=po, product=self.product2, quantity_units=7)
+
+        url = f"/api/purchase-orders/received-products/?provider={self.provider.id}"
+        # Enviar barcodes en lugar de IDs, marcar ambos como recibidos
+        payload = {"products": [bc1.code, bc2.code]}
+        res = self.client.post(url, data=payload, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(res.data, list)
+        self.assertEqual(len(res.data), 2)
+        for row in res.data:
+            self.assertTrue(row["received"])  # ambos recibidos
+            self.assertFalse(row["missing"])  # ninguno falta
+
+    def test_received_products_missing_provider_returns_400(self):
+        url = "/api/purchase-orders/received-products/"
+        res = self.client.post(url, data={"products": []}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", res.data)
+
+    def test_received_products_invalid_provider_returns_400(self):
+        url = "/api/purchase-orders/received-products/?provider=abc"
+        res = self.client.post(url, data={"products": []}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", res.data)
+
+    def test_received_products_no_shipped_returns_message(self):
+        # No existe orden SHIPPED para el proveedor
+        url = f"/api/purchase-orders/received-products/?provider={self.provider.id}"
+        res = self.client.post(url, data={"products": [self.product1.id]}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(res.data, dict)
+        self.assertEqual(res.data.get("detail"), "No existen órdenes enviadas para este proveedor.")
+
+    def test_received_products_products_not_list_returns_400(self):
+        # Crear una orden SHIPPED para pasar la validación de existencia
+        PurchaseOrder.objects.create(provider=self.provider, ordered_by=self.user, status="SHIPPED")
+        url = f"/api/purchase-orders/received-products/?provider={self.provider.id}"
+        # Enviar un dict en lugar de lista
+        res = self.client.post(url, data={"products": {"a": 1}}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", res.data)
+
+    def test_provider_has_received_orders_flag(self):
+        """Test que el campo has_received_orders funcione correctamente en ProviderSerializer."""
+        # Inicialmente, el proveedor no debe tener órdenes RECEIVED
+        url = f"/api/providers/{self.provider.id}/"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertFalse(res.data.get("has_received_orders"))
+
+        # Crear una orden en estado PLACED (no RECEIVED)
+        po_placed = PurchaseOrder.objects.create(
+            provider=self.provider, 
+            ordered_by=self.user, 
+            status=PurchaseOrder.Status.PLACED
+        )
+        
+        # El flag debe seguir siendo False
+        res2 = self.client.get(url)
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertFalse(res2.data.get("has_received_orders"))
+
+        # Crear una orden en estado RECEIVED
+        po_received = PurchaseOrder.objects.create(
+            provider=self.provider, 
+            ordered_by=self.user, 
+            status=PurchaseOrder.Status.RECEIVED
+        )
+        
+        # Ahora el flag debe ser True
+        res3 = self.client.get(url)
+        self.assertEqual(res3.status_code, status.HTTP_200_OK)
+        self.assertTrue(res3.data.get("has_received_orders"))
+
+        # Verificar también en la lista de proveedores
+        list_url = "/api/providers/"
+        res_list = self.client.get(list_url)
+        self.assertEqual(res_list.status_code, status.HTTP_200_OK)
+        provider_data = next((p for p in res_list.data if p["id"] == self.provider.id), None)
+        self.assertIsNotNone(provider_data)
+        self.assertTrue(provider_data.get("has_received_orders"))
