@@ -7,7 +7,25 @@ from simple_history.models import HistoricalRecords
 class Provider(models.Model):
     """Proveedor de productos."""
 
+    WEEKDAYS = [
+        (0, 'Lunes'),
+        (1, 'Martes'),
+        (2, 'Miércoles'),
+        (3, 'Jueves'),
+        (4, 'Viernes'),
+        (5, 'Sábado'),
+        (6, 'Domingo'),
+    ]
+
     name = models.CharField(max_length=150, unique=True)
+    # Hora límite para hacer pedidos (formato HH:MM)
+    order_deadline_time = models.TimeField(help_text="Hora límite para hacer pedidos (ej: 14:30)")
+    # Días de la semana en que acepta pedidos (JSON array de números 0-6)
+    order_available_weekdays = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Días de la semana que acepta pedidos (0=Lunes, 6=Domingo). Ej: [0,1,2,3,4] para Lun-Vie"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -92,6 +92,8 @@ class ProviderSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "name",
+            "order_deadline_time",
+            "order_available_weekdays",
             "created_at",
             "updated_at",
             "products_count",

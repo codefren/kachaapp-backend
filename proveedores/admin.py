@@ -6,9 +6,25 @@ from .models import Provider, Product, ProductBarcode, PurchaseOrder, PurchaseOr
 
 @admin.register(Provider)
 class ProviderAdmin(admin.ModelAdmin):
-    list_display = ("id", "name")
+    list_display = ("id", "name", "order_deadline_time", "get_weekdays_display")
     search_fields = ("name",)
     ordering = ("name",)
+    fields = ("name", "order_deadline_time", "order_available_weekdays")
+
+    def get_weekdays_display(self, obj):
+        """Muestra los días de la semana de forma legible."""
+        if not obj.order_available_weekdays:
+            return "Sin días configurados"
+
+        weekday_names = {
+            0: 'Lun', 1: 'Mar', 2: 'Mié', 3: 'Jue',
+            4: 'Vie', 5: 'Sáb', 6: 'Dom'
+        }
+
+        days = [weekday_names.get(day, str(day)) for day in obj.order_available_weekdays]
+        return ", ".join(days)
+
+    get_weekdays_display.short_description = "Días disponibles"
 
 
 class ProductBarcodeInline(admin.TabularInline):

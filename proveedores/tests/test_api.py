@@ -831,3 +831,57 @@ class ProveedoresAPITests(APITestCase):
         provider_data = next((p for p in res_list.data if p["id"] == self.provider.id), None)
         self.assertIsNotNone(provider_data)
         self.assertTrue(provider_data.get("has_received_orders"))
+
+    def test_provider_order_schedule_fields(self):
+        """Test que verifica que los campos de horario de pedidos se devuelven correctamente."""
+        from datetime import time
+
+        # Configurar proveedor con días laborales (Lun-Vie) y hora límite 14:30
+        self.provider.order_available_weekdays = [0, 1, 2, 3, 4]  # Lun-Vie
+        self.provider.order_deadline_time = time(14, 30)
+        self.provider.save()
+
+        url = f"/api/providers/{self.provider.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # Verificar que los campos están presentes en la respuesta
+        self.assertIn("order_deadline_time", res.data)
+        self.assertIn("order_available_weekdays", res.data)
+
+        # Verificar valores correctos
+        self.assertEqual(res.data["order_deadline_time"], "14:30:00")
+        self.assertEqual(res.data["order_available_weekdays"], [0, 1, 2, 3, 4])
+
+        # Verificar también en la lista de proveedores
+        list_url = "/api/providers/"
+        res_list = self.client.get(list_url)
+        self.assertEqual(res_list.status_code, status.HTTP_200_OK)
+
+        provider_data = next((p for p in res_list.data if p["id"] == self.provider.id), None)
+        self.assertIsNotNone(provider_data)
+        self.assertEqual(provider_data["order_deadline_time"], "14:30:00")
+        self.assertEqual(provider_data["order_available_weekdays"], [0, 1, 2, 3, 4])
+
+    def test_provider_order_schedule_required_fields(self):
+        """Test que verifica que ambos campos de horario son requeridos y se devuelven correctamente."""
+        from datetime import time
+
+        # Configurar proveedor con todos los campos requeridos
+        self.provider.order_available_weekdays = [1, 2, 3]  # Mar-Jue
+        self.provider.order_deadline_time = time(16, 0)  # 16:00
+        self.provider.save()
+
+        url = f"/api/providers/{self.provider.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # Verificar que ambos campos están presentes y son requeridos
+        self.assertEqual(res.data["order_deadline_time"], "16:00:00")
+        self.assertEqual(res.data["order_available_weekdays"], [1, 2, 3])
+
+        # Verificar que no pueden ser nulos
+        self.assertIsNotNone(res.data["order_deadline_time"])
+        self.assertIsNotNone(res.data["order_available_weekdays"])
