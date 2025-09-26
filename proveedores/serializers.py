@@ -109,7 +109,8 @@ class ProviderSerializer(serializers.ModelSerializer):
             provider=obj,
             status__in=[PurchaseOrder.Status.DRAFT, PurchaseOrder.Status.PLACED]
         ).first()
-        return order.status if order else None
+        return {"status": order.status if order else None,
+                "order_id": order.id if order else None}
 
     def get_order_available_dates(self, obj):
         """Retorna las fechas de la próxima semana donde el proveedor acepta pedidos con el nombre del día."""
