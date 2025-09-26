@@ -103,12 +103,13 @@ class ProviderSerializer(serializers.ModelSerializer):
         )
 
     def get_has_received_orders(self, obj):
-        """Retorna True si el proveedor tiene al menos una orden de compra en estado RECEIVED."""
+        """Retorna el estado de la orden si el proveedor tiene órdenes en estado DRAFT o PLACED."""
         from .models import PurchaseOrder
-        return PurchaseOrder.objects.filter(
+        order = PurchaseOrder.objects.filter(
             provider=obj,
-            status=PurchaseOrder.Status.PLACED
-        ).exists()
+            status__in=[PurchaseOrder.Status.DRAFT, PurchaseOrder.Status.PLACED]
+        ).first()
+        return order.status if order else None
 
     def get_order_available_dates(self, obj):
         """Retorna las fechas de la próxima semana donde el proveedor acepta pedidos con el nombre del día."""
