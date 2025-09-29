@@ -4,7 +4,10 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from .models import Refrigerator, TemperatureRecord
-from .refrigerator_serializers import RefrigeratorSerializer, TemperatureRecordSerializer
+from .refrigerator_serializers import (
+    RefrigeratorSerializer,
+    TemperatureRecordSerializer,
+)
 
 
 class RefrigeratorViewSet(viewsets.ModelViewSet):
@@ -23,15 +26,52 @@ class RefrigeratorViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["put"], url_path="temperature")
     def update_temperature(self, request, pk=None):
+        """Actualizar temperatura de una nevera para un período específico."""
         fridge = self.get_object()
         temp = request.data.get("temperature")
+        period = request.data.get("period", TemperatureRecord.Period.MORNING)
+
+        # Validar temperatura
         try:
             temp_val = float(temp)
         except (TypeError, ValueError):
-            return Response({"detail": "Valor de temperatura inválido"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Valor de temperatura inválido"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validar período
+        if period not in [choice[0] for choice in TemperatureRecord.Period.choices]:
+            return Response(
+                {
+                    "detail": f"Período inválido. Opciones: {[choice[0] for choice in TemperatureRecord.Period.choices]}"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         today = timezone.localdate()
-        record, _ = TemperatureRecord.objects.update_or_create(
-            refrigerator=fridge, date=today, defaults={"temperature": temp_val}
-        )
-        return Response(TemperatureRecordSerializer(record).data, status=status.HTTP_200_OK)
+
+        # Usar el serializer para validaciones completas
+        data = {
+            "refrigerator": fridge.id,
+            "date": today,
+            "period": period,
+            "temperature": temp_val,
+        }
+
+        # Buscar registro existente
+        try:
+            existing_record = TemperatureRecord.objects.get(
+                refrigerator=fridge, date=today, period=period
+            )
+            serializer = TemperatureRecordSerializer(
+                existing_record, data=data, partial=True
+            )
+        except TemperatureRecord.DoesNotExist:
+            serializer = TemperatureRecordSerializer(data=data)
+
+        if serializer.is_valid():
+            record = serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

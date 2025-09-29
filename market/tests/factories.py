@@ -32,7 +32,8 @@ class TemperatureRecordFactory(DjangoModelFactory):
     refrigerator = factory.SubFactory(RefrigeratorFactory)
     date = factory.LazyFunction(lambda: timezone.localdate())
     temperature = 4.0
+    period = TemperatureRecord.Period.MORNING
 
     class Meta:
         model = TemperatureRecord
-        django_get_or_create = ("refrigerator", "date")
+        django_get_or_create = ("refrigerator", "date", "period")
