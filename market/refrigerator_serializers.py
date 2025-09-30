@@ -12,15 +12,15 @@ class TemperatureRecordSerializer(serializers.ModelSerializer):
     class Meta:
         model = TemperatureRecord
         fields = (
-            "id", 
-            "refrigerator", 
-            "date", 
+            "id",
+            "refrigerator",
+            "date",
             "period",
             "period_display",
-            "temperature", 
+            "temperature",
             "temperature_status",
             "is_critical",
-            "recorded_at"
+            "recorded_at",
         )
         read_only_fields = ("recorded_at",)
 
@@ -36,26 +36,24 @@ class TemperatureRecordSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         """Validaciones a nivel de objeto."""
         # Verificar que no exista ya un registro para la misma nevera, fecha y período
-        refrigerator = attrs.get('refrigerator')
-        date = attrs.get('date')
-        period = attrs.get('period')
-        
+        refrigerator = attrs.get("refrigerator")
+        date = attrs.get("date")
+        period = attrs.get("period")
+
         if refrigerator and date and period:
             # Si estamos actualizando, excluir el objeto actual
             queryset = TemperatureRecord.objects.filter(
-                refrigerator=refrigerator,
-                date=date,
-                period=period
+                refrigerator=refrigerator, date=date, period=period
             )
-            
+
             if self.instance:
                 queryset = queryset.exclude(pk=self.instance.pk)
-            
+
             if queryset.exists():
                 raise serializers.ValidationError(
                     "Ya existe un registro de temperatura para esta nevera, fecha y período."
                 )
-        
+
         return attrs
 
     def get_temperature_status(self, obj):
@@ -72,55 +70,55 @@ class TemperatureRecordSerializer(serializers.ModelSerializer):
 
 
 class RefrigeratorSerializer(serializers.ModelSerializer):
-    """Incluye las listas de temperaturas por período."""
+    """Incluye solo las temperaturas del día actual por período."""
 
-    morning_temperatures = serializers.SerializerMethodField()
-    night_temperatures = serializers.SerializerMethodField()
+    morning_temperature = serializers.SerializerMethodField()
+    night_temperature = serializers.SerializerMethodField()
 
     class Meta:
         model = Refrigerator
         fields = (
-            "id", 
-            "market", 
-            "name", 
-            "morning_temperatures",
-            "night_temperatures",
-            "created_at"
+            "id",
+            "market",
+            "name",
+            "morning_temperature",
+            "night_temperature",
+            "created_at",
         )
         read_only_fields = ("created_at",)
 
-    def get_morning_temperatures(self, obj):
-        """Retorna lista de todas las temperaturas de mañana ordenadas por fecha."""
-        morning_records = obj.temperature_records.filter(
-            period=TemperatureRecord.Period.MORNING
-        ).order_by('-date')
-        
-        return [
-            {
+    def get_morning_temperature(self, obj):
+        """Retorna la temperatura de mañana del día actual."""
+        today = timezone.localdate()
+        try:
+            record = obj.temperature_records.get(
+                period=TemperatureRecord.Period.MORNING, date=today
+            )
+            return {
                 "id": record.id,
                 "date": record.date,
                 "temperature": record.temperature,
-                "status": record.get_temperature_status(),
+                "period": record.period,
                 "is_critical": record.is_temperature_critical(),
-                "recorded_at": record.recorded_at
+                "recorded_at": record.recorded_at,
             }
-            for record in morning_records
-        ]
+        except TemperatureRecord.DoesNotExist:
+            return None
 
-    def get_night_temperatures(self, obj):
-        """Retorna lista de todas las temperaturas de noche ordenadas por fecha."""
-        night_records = obj.temperature_records.filter(
-            period=TemperatureRecord.Period.NIGHT
-        ).order_by('-date')
-        
-        return [
-            {
+    def get_night_temperature(self, obj):
+        """Retorna la temperatura de noche del día actual."""
+        today = timezone.localdate()
+        try:
+            record = obj.temperature_records.get(
+                period=TemperatureRecord.Period.NIGHT, date=today
+            )
+            return {
                 "id": record.id,
                 "date": record.date,
                 "temperature": record.temperature,
-                "status": record.get_temperature_status(),
+                "period": record.period,
                 "is_critical": record.is_temperature_critical(),
-                "recorded_at": record.recorded_at
+                "recorded_at": record.recorded_at,
             }
-            for record in night_records
-        ]
+        except TemperatureRecord.DoesNotExist:
+            return None

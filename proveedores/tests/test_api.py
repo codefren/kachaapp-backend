@@ -818,7 +818,10 @@ class ProveedoresAPITests(APITestCase):
         url = f"/api/providers/{self.provider.id}/"
         res = self.client.get(url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertFalse(res.data.get("has_received_orders"))
+        has_received = res.data.get("has_received_orders")
+        self.assertIsInstance(has_received, dict)
+        self.assertIsNone(has_received["status"])
+        self.assertIsNone(has_received["order_id"])
 
         # Crear una orden en estado PLACED (no RECEIVED)
         po_placed = PurchaseOrder.objects.create(
@@ -827,10 +830,13 @@ class ProveedoresAPITests(APITestCase):
             status=PurchaseOrder.Status.PLACED
         )
         
-        # El flag debe seguir siendo False
+        # El campo debe seguir sin tener información de órdenes RECEIVED
         res2 = self.client.get(url)
         self.assertEqual(res2.status_code, status.HTTP_200_OK)
-        self.assertFalse(res2.data.get("has_received_orders"))
+        has_received2 = res2.data.get("has_received_orders")
+        self.assertIsInstance(has_received2, dict)
+        self.assertIsNone(has_received2["status"])
+        self.assertIsNone(has_received2["order_id"])
 
         # Crear una orden en estado RECEIVED
         po_received = PurchaseOrder.objects.create(
@@ -839,10 +845,13 @@ class ProveedoresAPITests(APITestCase):
             status=PurchaseOrder.Status.RECEIVED
         )
         
-        # Ahora el flag debe ser True
+        # Ahora debe tener información de la orden RECEIVED
         res3 = self.client.get(url)
         self.assertEqual(res3.status_code, status.HTTP_200_OK)
-        self.assertTrue(res3.data.get("has_received_orders"))
+        has_received3 = res3.data.get("has_received_orders")
+        self.assertIsInstance(has_received3, dict)
+        self.assertEqual(has_received3["status"], PurchaseOrder.Status.RECEIVED)
+        self.assertEqual(has_received3["order_id"], po_received.id)
 
         # Verificar también en la lista de proveedores
         list_url = "/api/providers/"
@@ -850,7 +859,10 @@ class ProveedoresAPITests(APITestCase):
         self.assertEqual(res_list.status_code, status.HTTP_200_OK)
         provider_data = next((p for p in res_list.data if p["id"] == self.provider.id), None)
         self.assertIsNotNone(provider_data)
-        self.assertTrue(provider_data.get("has_received_orders"))
+        provider_has_received = provider_data.get("has_received_orders")
+        self.assertIsInstance(provider_has_received, dict)
+        self.assertEqual(provider_has_received["status"], PurchaseOrder.Status.RECEIVED)
+        self.assertEqual(provider_has_received["order_id"], po_received.id)
 
     def test_provider_order_schedule_fields(self):
         """Test que verifica que los campos de horario de pedidos se devuelven correctamente."""
