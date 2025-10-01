@@ -2,6 +2,7 @@ from django.utils import timezone
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from django_filters import rest_framework as filters
 
 from .models import Refrigerator, TemperatureRecord
 from .refrigerator_serializers import (
@@ -75,3 +76,33 @@ class RefrigeratorViewSet(viewsets.ModelViewSet):
             return Response(serializer.data, status=status.HTTP_200_OK)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TemperatureRecordFilter(filters.FilterSet):
+    """Filtros para registros de temperatura."""
+    market = filters.NumberFilter(field_name='refrigerator__market', label='Market ID')
+    date = filters.DateFilter(field_name='date', label='Fecha (YYYY-MM-DD)')
+    date_from = filters.DateFilter(field_name='date', lookup_expr='gte', label='Fecha desde')
+    date_to = filters.DateFilter(field_name='date', lookup_expr='lte', label='Fecha hasta')
+    period = filters.ChoiceFilter(choices=TemperatureRecord.Period.choices, label='Período del día')
+    refrigerator = filters.NumberFilter(field_name='refrigerator', label='Refrigerador ID')
+
+    class Meta:
+        model = TemperatureRecord
+        fields = ['market', 'date', 'date_from', 'date_to', 'period', 'refrigerator']
+
+
+class TemperatureRecordViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet para consultar registros de temperatura con filtros."""
+    queryset = TemperatureRecord.objects.all().select_related(
+        'refrigerator', 'refrigerator__market'
+    ).order_by('-date', '-recorded_at')
+    serializer_class = TemperatureRecordSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filterset_class = TemperatureRecordFilter
+    filter_backends = [filters.DjangoFilterBackend]
+
+    def get_queryset(self):
+        """Optimizar queryset con select_related."""
+        qs = super().get_queryset()
+        return qs
