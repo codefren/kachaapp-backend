@@ -4,7 +4,8 @@ from urllib.parse import urlparse
 from rest_framework.test import APITestCase
 from rest_framework import status
 
-from proveedores.models import Provider, Product, PurchaseOrder, PurchaseOrderItem, ProductFavorite, ProductBarcode
+from purchase_orders.models import PurchaseOrder, PurchaseOrderItem
+from proveedores.models import Provider, Product, ProductFavorite, ProductBarcode
 
 
 class ProveedoresAPITests(APITestCase):

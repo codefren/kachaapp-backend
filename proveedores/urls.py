@@ -6,8 +6,6 @@ from . import views
 app_name = "proveedores"
 
 router = DefaultRouter()
-router.register(r"purchase-orders", views.PurchaseOrderViewSet, basename="purchaseorder")
-router.register(r"purchase-order-items", views.PurchaseOrderItemViewSet, basename="purchaseorderitem")
 router.register(r"products", views.ProductViewSet, basename="product")
 router.register(r"providers", views.ProviderViewSet, basename="provider")
 
