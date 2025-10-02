@@ -1,6 +1,5 @@
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
 from rest_framework import serializers
-from drf_spectacular.utils import extend_schema_field
 from .models import Market
 from django.utils import timezone
 
@@ -42,11 +41,9 @@ class MarketProximityTokenRefreshSerializer(TokenRefreshSerializer):
         data['login_time'] = self._login_time.strftime('%d/%m/%Y %H:%M')
         return data
 
-    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_market_name(self, obj):
         return getattr(self, '_market_name', None)
 
-    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_login_time(self, obj):
         if self._login_time is not None:
             return self._login_time.strftime('%d/%m/%Y %H:%M')
@@ -90,11 +87,9 @@ class MarketProximityTokenObtainPairSerializer(TokenObtainPairSerializer):
         data['login_time'] = self._login_time.strftime('%d/%m/%Y %H:%M')
         return data
 
-    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_market_name(self, obj):
         return getattr(self, '_market_name', None)
 
-    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_login_time(self, obj):
         if hasattr(self, '_login_time'):
             return self._login_time.strftime('%d/%m/%Y %H:%M')

@@ -18,6 +18,9 @@ class Provider(models.Model):
     ]
 
     name = models.CharField(max_length=150, unique=True)
+    contact_person = models.CharField(max_length=150, blank=True, default='', help_text="Persona de contacto")
+    phone = models.CharField(max_length=20, blank=True, default='', help_text="Teléfono de contacto")
+    email = models.EmailField(blank=True, default='', help_text="Email de contacto")
     # Hora límite para hacer pedidos (formato HH:MM)
     order_deadline_time = models.TimeField(help_text="Hora límite para hacer pedidos (ej: 14:30)")
     # Días de la semana en que acepta pedidos (JSON array de números 0-6)

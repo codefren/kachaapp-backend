@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("market", "0002_alter_market_name_refrigerator_temperaturerecord"),
+        ("market", "0004_fix_temperature_data"),
     ]
 
     operations = [

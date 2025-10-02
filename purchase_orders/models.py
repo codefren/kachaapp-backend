@@ -77,7 +77,7 @@ class PurchaseOrderItem(models.Model):
         constraints = [
             # quantity_units > 0
             models.CheckConstraint(
-                condition=models.Q(quantity_units__gt=0), name="chk_poi_qty_gt_0"
+                check=models.Q(quantity_units__gt=0), name="chk_poi_qty_gt_0"
             ),
             # Evitar duplicados del mismo producto y misma unidad de compra en la misma orden
             models.UniqueConstraint(

@@ -89,7 +89,7 @@ class TemperatureRecord(models.Model):
         verbose_name_plural = "Temperature Records"
         constraints = [
             models.CheckConstraint(
-                condition=models.Q(temperature__gte=-30.0)
+                check=models.Q(temperature__gte=-30.0)
                 & models.Q(temperature__lte=10.0),
                 name="temperature_range_check",
             ),

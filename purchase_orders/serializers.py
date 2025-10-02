@@ -1,7 +1,6 @@
 """Serializers for purchase orders."""
 
 from rest_framework import serializers
-from drf_spectacular.utils import extend_schema_field
 
 from proveedores.models import Product
 from .models import PurchaseOrder, PurchaseOrderItem
@@ -32,7 +31,6 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id", "created_at", "updated_at")
 
-    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_product_image(self, obj):
         """Get absolute HTTPS URL for product image."""
         product = getattr(obj, "product", None)

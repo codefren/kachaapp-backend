@@ -31,7 +31,7 @@ def reverse_fix_temperature_data(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('market', '0003_alter_temperaturerecord_options_and_more'),
+        ('market', '0002_alter_market_name_refrigerator_temperaturerecord'),
     ]
 
     operations = [

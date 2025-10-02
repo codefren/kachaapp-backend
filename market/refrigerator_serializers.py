@@ -1,6 +1,5 @@
 from rest_framework import serializers
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema_field
 
 from .models import Refrigerator, TemperatureRecord
 
@@ -57,17 +56,14 @@ class TemperatureRecordSerializer(serializers.ModelSerializer):
 
         return attrs
 
-    @extend_schema_field(serializers.CharField())
     def get_temperature_status(self, obj):
         """Retorna el estado de la temperatura."""
         return obj.get_temperature_status()
 
-    @extend_schema_field(serializers.BooleanField())
     def get_is_critical(self, obj):
         """Retorna si la temperatura es crítica."""
         return obj.is_temperature_critical()
 
-    @extend_schema_field(serializers.CharField())
     def get_period_display(self, obj):
         """Retorna el nombre legible del período."""
         return obj.get_period_display()
@@ -91,7 +87,6 @@ class RefrigeratorSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("created_at",)
 
-    @extend_schema_field(TemperatureRecordSerializer(allow_null=True))
     def get_morning_temperature(self, obj):
         """Retorna la temperatura de mañana del día actual."""
         today = timezone.localdate()
@@ -110,7 +105,6 @@ class RefrigeratorSerializer(serializers.ModelSerializer):
         except TemperatureRecord.DoesNotExist:
             return None
 
-    @extend_schema_field(TemperatureRecordSerializer(allow_null=True))
     def get_night_temperature(self, obj):
         """Retorna la temperatura de noche del día actual."""
         today = timezone.localdate()
