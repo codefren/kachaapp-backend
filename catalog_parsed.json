@@ -1,0 +1,506 @@
+[
+  {
+    "nombre": "ACEITE OLIVA INTENSO CARBONELL 1L",
+    "ref": "48695",
+    "barcode": "8410010260929",
+    "familia": 1
+  },
+  {
+    "nombre": "ACEITE OLIVA SUAVE CARBONELL 1L 0.4º",
+    "ref": "44015",
+    "barcode": "8410010000181",
+    "familia": 1
+  },
+  {
+    "nombre": "ACEITE GIRASOL BORGESOL BORGES 1L 0.2º",
+    "ref": "44330",
+    "barcode": "8410179202006",
+    "familia": 1
+  },
+  {
+    "nombre": "ACEITE OLIVA VIRGEN EXTRA CARBONELL 1L",
+    "ref": "44079",
+    "barcode": "8410010260042",
+    "familia": 1
+  },
+  {
+    "nombre": "ACEITE OLIVA SUAVE BORGES 1L. 0.4º -ac",
+    "ref": "44053",
+    "barcode": "8410179010014",
+    "familia": 1
+  },
+  {
+    "nombre": "ACEITE OLIVA VIRGEN ARBEQUI BORGES 0",
+    "ref": "44039",
+    "barcode": "8410179100340",
+    "familia": 1
+  },
+  {
+    "nombre": "ACEITE OLIVA VIRGEN EXTRA BORGES 1L",
+    "ref": "44112",
+    "barcode": "8410179012018",
+    "familia": 1
+  },
+  {
+    "nombre": "ALUBIA CIDACOS FCO.400G",
+    "ref": "8000641",
+    "barcode": "8410313315814",
+    "familia": 1
+  },
+  {
+    "nombre": "CALDO AVECREM POLLO NAT. 8+2P.",
+    "ref": "32086",
+    "barcode": "8410300353058",
+    "familia": 1
+  },
+  {
+    "nombre": "CALDO CASERO CARNE GALLINA BLANCA 1L",
+    "ref": "44854",
+    "barcode": "8410300349044",
+    "familia": 1
+  },
+  {
+    "nombre": "CALDO CASERO POLLO BAJO SAL GA.BLANCA 1L",
+    "ref": "44857",
+    "barcode": "8410300348993",
+    "familia": 1
+  },
+  {
+    "nombre": "CALDO G.BLANCA CASER.POLLO NAT.1L",
+    "ref": "8000691",
+    "barcode": "8410300349051",
+    "familia": 1
+  },
+  {
+    "nombre": "GARBANZO CIDACOS SIN / SAL .400G",
+    "ref": "9415",
+    "barcode": "8410313325851",
+    "familia": 1
+  },
+  {
+    "nombre": "GARBANZO CIDACOS FCO.400G",
+    "ref": "8000651",
+    "barcode": "8410313185230",
+    "familia": 1
+  },
+  {
+    "nombre": "LENTEJAS EXTRA SIN SAL CIDACOS.400G",
+    "ref": "9544",
+    "barcode": "8410313335812",
+    "familia": 1
+  },
+  {
+    "nombre": "MAIZ GIGANTE VERDE DULCE 420G PACK-3",
+    "ref": "9259",
+    "barcode": "8410076009043",
+    "familia": 1
+  },
+  {
+    "nombre": "MAIZ GRANDE VERDE DULCE 285G",
+    "ref": "9257",
+    "barcode": "8410076009029",
+    "familia": 1
+  },
+  {
+    "nombre": "NOODLES YAKISOBA YATEKOMO 93G",
+    "ref": "60693",
+    "barcode": "8410300352327",
+    "familia": 1
+  },
+  {
+    "nombre": "NOODLES YATEKOMO POLLO 60G",
+    "ref": "53359",
+    "barcode": "8410300349952",
+    "familia": 1
+  },
+  {
+    "nombre": "PEPINILLO RIOVERDE S.AN.TAR.180G",
+    "ref": "13753",
+    "barcode": "8410954000711",
+    "familia": 1
+  },
+  {
+    "nombre": "SAL COSTA NATURAL",
+    "ref": "PLAST.1KG",
+    "barcode": "42310",
+    "familia": 1
+  },
+  {
+    "nombre": "SAL COSTA YODO PAPEL 1KG",
+    "ref": "42111",
+    "barcode": "8410604102161",
+    "familia": 1
+  },
+  {
+    "nombre": "SAL COSTA YODO+FLUOR PAPEL 1K",
+    "ref": "42311",
+    "barcode": "8410604110500",
+    "familia": 1
+  },
+  {
+    "nombre": "SAL GORDA ALTA COCINA COSTA 2KG",
+    "ref": "42312",
+    "barcode": "8410604111408",
+    "familia": 1
+  },
+  {
+    "nombre": "SAL MALDON MAR 250G",
+    "ref": "42210",
+    "barcode": "5011428100048",
+    "familia": 1
+  },
+  {
+    "nombre": "SARDINA CUCA ACEITE OLIVA FA.RR-125 85G",
+    "ref": "15285",
+    "barcode": "8410698072722",
+    "familia": 1
+  },
+  {
+    "nombre": "SARDINA CUCA ESCAB.RR-125 FA 85G",
+    "ref": "15314",
+    "barcode": "8410700000000",
+    "familia": 1
+  },
+  {
+    "nombre": "SARDINA CUCA TOMATE RR-125 FA.80G",
+    "ref": "15413",
+    "barcode": "8410700000000",
+    "familia": 1
+  },
+  {
+    "nombre": "SOPA GALLINA BLANCA POLLO CON FIDEO 71G",
+    "ref": "32110",
+    "barcode": "8410300101598",
+    "familia": 1
+  },
+  {
+    "nombre": "VINAGRE BLANCO GOURMET 1L0",
+    "ref": "8000781",
+    "barcode": "8413080460053",
+    "familia": 1
+  },
+  {
+    "nombre": "VINAGRE BORGES BALS.MODENA 250ML",
+    "ref": "46008",
+    "barcode": "8410179306148",
+    "familia": 1
+  },
+  {
+    "nombre": "VINAGRE TINTO GOURMET 1L",
+    "ref": "46004",
+    "barcode": "8413080460046",
+    "familia": 1
+  },
+  {
+    "nombre": "AZUCAR AZUCARERA 1K",
+    "ref": "8000181",
+    "barcode": "8410714102129",
+    "familia": 10
+  },
+  {
+    "nombre": "CACAO COLACAO 383G",
+    "ref": "97677",
+    "barcode": "8410014465504",
+    "familia": 10
+  },
+  {
+    "nombre": "CAFE L'OR ONIX CAP. 10U",
+    "ref": "80486",
+    "barcode": "8410091058071",
+    "familia": 10
+  },
+  {
+    "nombre": "CAFE BONKA MOL.NAT.250G",
+    "ref": "6744",
+    "barcode": "8410100021119",
+    "familia": 10
+  },
+  {
+    "nombre": "CAFE COLOMBIA L'OR 10CAP. 52G",
+    "ref": "80951",
+    "barcode": "8711000357613",
+    "familia": 10
+  },
+  {
+    "nombre": "CAFE D.GUSTO ESPR.INTENSO 16U",
+    "ref": "8000431",
+    "barcode": "7613036862295",
+    "familia": 10
+  },
+  {
+    "nombre": "CAFE ESPRESSO FORZA L'OR 10U",
+    "ref": "80483",
+    "barcode": "8711000357484",
+    "familia": 10
+  },
+  {
+    "nombre": "CAFE EXPRESO DESCAFEINADO L'OR10U 52G",
+    "ref": "80488",
+    "barcode": "8711000357514",
+    "familia": 10
+  },
+  {
+    "nombre": "CAFE L'OR ONYX 20 CAP.",
+    "ref": "93829",
+    "barcode": "8711000366035",
+    "familia": 10
+  },
+  {
+    "nombre": "CAFE L'OR RISTRETTO CAP.10U",
+    "ref": "80481",
+    "barcode": "8410091107304",
+    "familia": 10
+  },
+  {
+    "nombre": "CAFE L'OR RISTRETTO DESC.20CAP5",
+    "ref": "93652",
+    "barcode": "8711000357453",
+    "familia": 10
+  },
+  {
+    "nombre": "CAFE L'OR SUNTUOSO 10CAP",
+    "ref": "80484",
+    "barcode": "8711000357477",
+    "familia": 10
+  },
+  {
+    "nombre": "CAFE MOLIDO MEZCLA MARCILLA 250G",
+    "ref": "16027",
+    "barcode": "8410091180048",
+    "familia": 10
+  },
+  {
+    "nombre": "CAFE NESCAFE DESCAFEINADO CLASICO 100G",
+    "ref": "16631",
+    "barcode": "8410100021553",
+    "familia": 10
+  },
+  {
+    "nombre": "CAFE NESCAFE NATURAL 100G",
+    "ref": "16621",
+    "barcode": "8410100020556",
+    "familia": 10
+  },
+  {
+    "nombre": "CAFE NESCAFE NATURAL CLASICO 200G",
+    "ref": "16635",
+    "barcode": "8410100020549",
+    "familia": 10
+  },
+  {
+    "nombre": "CONFITURA BONNE MAMAN ARANDANOS 370G",
+    "ref": "12011",
+    "barcode": "3045320007725",
+    "familia": 10
+  },
+  {
+    "nombre": "CONFITURA BONNE MAMAN FRAMBUESA 370G",
+    "ref": "12717",
+    "barcode": "3045320007701",
+    "familia": 10
+  },
+  {
+    "nombre": "CONFITURA BONNE MAMAN FRESA 370G",
+    "ref": "12326",
+    "barcode": "3045320007657",
+    "familia": 10
+  },
+  {
+    "nombre": "CONFITURA BONNE MAMAN MELOCOTON 370 GR.",
+    "ref": "12025",
+    "barcode": "3045320007671",
+    "familia": 10
+  },
+  {
+    "nombre": "CONFITURA BONNE MAMAN NARANJA AMA.370GR.",
+    "ref": "12425",
+    "barcode": "3045320075588",
+    "familia": 10
+  },
+  {
+    "nombre": "CONFITURA HERO FRAMBUESA 345G",
+    "ref": "12322",
+    "barcode": "8410175069405",
+    "familia": 10
+  },
+  {
+    "nombre": "CONFITURA HERO FRESA 345G",
+    "ref": "12319",
+    "barcode": "8410175069399",
+    "familia": 10
+  },
+  {
+    "nombre": "CONFITURA HERO MELOC.345G",
+    "ref": "12013",
+    "barcode": "8410175069344",
+    "familia": 10
+  },
+  {
+    "nombre": "CREMA NOCILLA ORIGINAL 190G CACAO",
+    "ref": "97262",
+    "barcode": "8410014929976",
+    "familia": 10
+  },
+  {
+    "nombre": "CREMA NUTELLA 350G CACAO",
+    "ref": "24698",
+    "barcode": "80177173",
+    "familia": 10
+  },
+  {
+    "nombre": "EDULCORANTE NATREEN STEVIA 120U",
+    "ref": "212855",
+    "barcode": "8410091104921",
+    "familia": 10
+  },
+  {
+    "nombre": "INFUSION TE EARL GREY TWININGS 25UN 50G",
+    "ref": "27763",
+    "barcode": "070177077563",
+    "familia": 10
+  },
+  {
+    "nombre": "INFUSION MANZANILLA HORNIMANS 25UN 27,5G",
+    "ref": "12883",
+    "barcode": "8410091103320",
+    "familia": 10
+  },
+  {
+    "nombre": "INFUSION POLEO MENTA HORNIMANS 25F",
+    "ref": "12901",
+    "barcode": "8410091103344",
+    "familia": 10
+  },
+  {
+    "nombre": "INFUSION TE CLASICO HORNIMANS 25UN 43,7G1",
+    "ref": "12884",
+    "barcode": "8410091103368",
+    "familia": 10
+  },
+  {
+    "nombre": "INFUSION TE VERDE HORNIMANS 20UN 30G",
+    "ref": "12892",
+    "barcode": "8410091025011",
+    "familia": 10
+  },
+  {
+    "nombre": "INFUSION TILA HORNIMANS 25UN 30G",
+    "ref": "12902",
+    "barcode": "8410091103306",
+    "familia": 10
+  },
+  {
+    "nombre": "LECHE CONDENSADA LA LECHERA 370G",
+    "ref": "37007",
+    "barcode": "8410100000169",
+    "familia": 10
+  },
+  {
+    "nombre": "MELOCOTON  HELIOS ALMIBAR LATA 480 GR",
+    "ref": "219118",
+    "barcode": "8410095005095",
+    "familia": 10
+  },
+  {
+    "nombre": "MIEL DE MIL FLORES ALEMANY 500G",
+    "ref": "12861",
+    "barcode": "8412614101042",
+    "familia": 10
+  },
+  {
+    "nombre": "MIEL ROMERO ALEMANY 500G",
+    "ref": "12862",
+    "barcode": "8412614101066",
+    "familia": 10
+  },
+  {
+    "nombre": "MIEL MIL FLORES SAN FRANCISCO 425G",
+    "ref": "12858",
+    "barcode": "8434164441836",
+    "familia": 10
+  },
+  {
+    "nombre": "PATE LA PIARA TAPA NEGRA 75G P-3",
+    "ref": "55111",
+    "barcode": "8412500922072",
+    "familia": 10
+  },
+  {
+    "nombre": "INFUSION MANZANILLA-ANIS HORNIMANS 25UN.",
+    "ref": "12893",
+    "barcode": "8410091103382",
+    "familia": 10
+  },
+  {
+    "nombre": "PATE TARRADELLAS PIM 125G",
+    "ref": "55131",
+    "barcode": "8410762002327",
+    "familia": 10
+  },
+  {
+    "nombre": "PATE TARRADELLAS CAMPAÑA 125G",
+    "ref": "55192",
+    "barcode": "8410762002358",
+    "familia": 10
+  },
+  {
+    "nombre": "BOMBON FERRERO ROCHER T-16",
+    "ref": "39803",
+    "barcode": "8000500000000",
+    "familia": 11
+  },
+  {
+    "nombre": "BOMBON FERRERO ROCHER T-240",
+    "ref": "39916",
+    "barcode": "8000500000000",
+    "familia": 11
+  },
+  {
+    "nombre": "CARAMELO HALLS EUCALIP.MENTA S/A32G",
+    "ref": "26573",
+    "barcode": "8416400888131",
+    "familia": 11
+  },
+  {
+    "nombre": "CHICLE FIVE ELECTRO HIERBA BUENA",
+    "ref": "216498",
+    "barcode": "4009900539401",
+    "familia": 11
+  },
+  {
+    "nombre": "CHICLE ORBIT EUCALIPTO 14G",
+    "ref": "25885",
+    "barcode": "5449000088550",
+    "familia": 11
+  },
+  {
+    "nombre": "CHICLE ORBIT FRESA ACIDA 14G",
+    "ref": "25884",
+    "barcode": "50173099",
+    "familia": 11
+  },
+  {
+    "nombre": "CHICLE ORBIT FRESA CAJA 60 GRAGEAS 84 GR",
+    "ref": "55850",
+    "barcode": "4009900484398",
+    "familia": 11
+  },
+  {
+    "nombre": "CHOCO.MILKA ALM.125G",
+    "ref": "39401",
+    "barcode": "8410172652600",
+    "familia": 11
+  },
+  {
+    "nombre": "CHOCO.MILKA C/LECHE 125G",
+    "ref": "45800",
+    "barcode": "8410172652525",
+    "familia": 11
+  },
+  {
+    "nombre": "CHOCO.NESTLE CRUNCH 100G",
+    "ref": "39026",
+    "barcode": "3033710001279",
+    "familia": 11
+  }
+]

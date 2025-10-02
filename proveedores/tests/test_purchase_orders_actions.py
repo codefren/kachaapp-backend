@@ -6,8 +6,7 @@ from django.utils import timezone
 from django.contrib.auth import get_user_model
 from rest_framework import status
 
-from purchase_orders.models import PurchaseOrder, PurchaseOrderItem
-from proveedores.models import Provider, ProductBarcode
+from proveedores.models import Provider, PurchaseOrder, PurchaseOrderItem, ProductBarcode
 
 
 def test_has_ordered_today(auth_client, provider, user, product1):

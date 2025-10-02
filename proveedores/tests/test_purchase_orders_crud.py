@@ -3,8 +3,7 @@
 import pytest
 from rest_framework import status
 
-from purchase_orders.models import PurchaseOrder, PurchaseOrderItem
-from proveedores.models import Product
+from proveedores.models import PurchaseOrder, PurchaseOrderItem, Product
 
 
 def test_root(auth_client):
