@@ -21,7 +21,7 @@ def test_list_providers(auth_client, provider):
 
 def test_provider_has_received_orders_flag(auth_client, provider, user):
     """Test que el campo has_received_orders funcione correctamente en ProviderSerializer."""
-    # Inicialmente, el proveedor no debe tener órdenes RECEIVED
+    # Inicialmente, el proveedor no debe tener órdenes PLACED o DRAFT
     url = f"/api/providers/{provider.id}/"
     res = auth_client.get(url)
     assert res.status_code == status.HTTP_200_OK
@@ -30,37 +30,37 @@ def test_provider_has_received_orders_flag(auth_client, provider, user):
     assert has_received["status"] is None
     assert has_received["order_id"] is None
 
-    # Crear una orden en estado PLACED (no RECEIVED)
+    # Crear una orden en estado PLACED
     po_placed = PurchaseOrder.objects.create(
         provider=provider, 
         ordered_by=user, 
         status=PurchaseOrder.Status.PLACED
     )
     
-    # El campo debe seguir sin tener información de órdenes RECEIVED
+    # Ahora debe tener información de la orden PLACED
     res2 = auth_client.get(url)
     assert res2.status_code == status.HTTP_200_OK
     has_received2 = res2.data.get("has_received_orders")
     assert isinstance(has_received2, dict)
-    assert has_received2["status"] is None
-    assert has_received2["order_id"] is None
+    assert has_received2["status"] == PurchaseOrder.Status.PLACED
+    assert has_received2["order_id"] == po_placed.id
 
-    # Crear una orden en estado RECEIVED
-    po_received = PurchaseOrder.objects.create(
+    # Crear una orden en estado DRAFT (más reciente)
+    po_draft = PurchaseOrder.objects.create(
         provider=provider, 
         ordered_by=user, 
-        status=PurchaseOrder.Status.RECEIVED
+        status=PurchaseOrder.Status.DRAFT
     )
     
-    # Ahora debe tener información de la orden RECEIVED
+    # Ahora debe tener información de la orden DRAFT (la más reciente)
     res3 = auth_client.get(url)
     assert res3.status_code == status.HTTP_200_OK
     has_received3 = res3.data.get("has_received_orders")
     assert isinstance(has_received3, dict)
-    assert has_received3["status"] == PurchaseOrder.Status.RECEIVED
-    assert has_received3["order_id"] == po_received.id
+    assert has_received3["status"] == PurchaseOrder.Status.DRAFT
+    assert has_received3["order_id"] == po_draft.id
 
-    # Verificar también en la lista de proveedores
+    # Verificar también en la lista de proveedores (debe devolver la más reciente: DRAFT)
     list_url = "/api/providers/"
     res_list = auth_client.get(list_url)
     assert res_list.status_code == status.HTTP_200_OK
@@ -68,8 +68,8 @@ def test_provider_has_received_orders_flag(auth_client, provider, user):
     assert provider_data is not None
     provider_has_received = provider_data.get("has_received_orders")
     assert isinstance(provider_has_received, dict)
-    assert provider_has_received["status"] == PurchaseOrder.Status.RECEIVED
-    assert provider_has_received["order_id"] == po_received.id
+    assert provider_has_received["status"] == PurchaseOrder.Status.DRAFT
+    assert provider_has_received["order_id"] == po_draft.id
 
 
 def test_provider_order_schedule_fields(auth_client, provider):
