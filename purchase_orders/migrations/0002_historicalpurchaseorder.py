@@ -15,9 +15,14 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.CreateModel(
-            name="HistoricalPurchaseOrder",
-            fields=[
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                # La tabla ya existe, no hacer nada en la BD
+            ],
+            state_operations=[
+                migrations.CreateModel(
+                    name="HistoricalPurchaseOrder",
+                    fields=[
                 (
                     "id",
                     models.BigIntegerField(
@@ -83,13 +88,15 @@ class Migration(migrations.Migration):
                         to="proveedores.provider",
                     ),
                 ),
+                    ],
+                    options={
+                        "verbose_name": "historical Purchase order",
+                        "verbose_name_plural": "historical Purchase orders",
+                        "ordering": ("-history_date", "-history_id"),
+                        "get_latest_by": ("history_date", "history_id"),
+                    },
+                    bases=(simple_history.models.HistoricalChanges, models.Model),
+                ),
             ],
-            options={
-                "verbose_name": "historical Purchase order",
-                "verbose_name_plural": "historical Purchase orders",
-                "ordering": ("-history_date", "-history_id"),
-                "get_latest_by": ("history_date", "history_id"),
-            },
-            bases=(simple_history.models.HistoricalChanges, models.Model),
         ),
     ]
