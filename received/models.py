@@ -3,6 +3,7 @@
 from django.db import models
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from market.models import Market
 
 
@@ -37,6 +38,30 @@ class Reception(models.Model):
         help_text="Reception status",
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    # Campos de factura (opcionales, se actualizan por PATCH)
+    invoice_image_b64 = models.TextField(
+        blank=True,
+        default="",
+        help_text="Base64-encoded image of the invoice",
+    )
+    invoice_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Invoice date (YYYY-MM-DD)",
+    )
+    invoice_time = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="Invoice time (HH:MM[:SS])",
+    )
+    invoice_total = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+        help_text="Total amount of the invoice (>= 0)",
+    )
 
     class Meta:
         ordering = ["-created_at"]

@@ -4,6 +4,8 @@ from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
+from decimal import Decimal, InvalidOperation
+from datetime import date as date_cls, time as time_cls
 
 from purchase_orders.serializers import PurchaseOrderSerializer
 from proveedores.models import Product, ProductBarcode
@@ -249,6 +251,10 @@ class ReceptionViewSet(viewsets.ViewSet):
             "market_id": reception.market_id,
             "status": reception.status,
             "created_at": reception.created_at,
+            "invoice_image_b64": reception.invoice_image_b64,
+            "invoice_date": reception.invoice_date,
+            "invoice_time": reception.invoice_time,
+            "invoice_total": str(reception.invoice_total) if reception.invoice_total is not None else None,
             "items": [
                 {
                     "id": r.id,
@@ -263,6 +269,30 @@ class ReceptionViewSet(viewsets.ViewSet):
                 for r in items
             ],
         }
+        return Response(data)
+
+    def list(self, request):
+        """GET: lista de recepciones del market del usuario con solo id e imagen de factura."""
+        market = self._get_user_market(request.user)
+        if not market:
+            return Response(
+                {"detail": "No market found for current user (no login history)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        qs = (
+            Reception.objects
+            .filter(market=market)
+            .only("id", "invoice_image_b64", "created_at")
+            .order_by("-created_at")
+        )
+        data = [
+            {
+                "id": r.id,
+                "invoice_image_b64": r.invoice_image_b64,
+            }
+            for r in qs
+        ]
         return Response(data)
 
     def partial_update(self, request, pk=None):
@@ -283,6 +313,10 @@ class ReceptionViewSet(viewsets.ViewSet):
 
         new_status = request.data.get("status")
         items = request.data.get("items", None)
+        inv_image = request.data.get("invoice_image_b64", None)
+        inv_date = request.data.get("invoice_date", None)
+        inv_time = request.data.get("invoice_time", None)
+        inv_total = request.data.get("invoice_total", None)
 
         if items is not None and reception.status != Reception.Status.DRAFT:
             return Response({"detail": "Only DRAFT receptions can replace items."}, status=status.HTTP_400_BAD_REQUEST)
@@ -291,9 +325,51 @@ class ReceptionViewSet(viewsets.ViewSet):
             return Response({"detail": "Field 'items' must be a list."}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
+            update_fields = []
             if new_status in (Reception.Status.DRAFT, Reception.Status.COMPLETED):
                 reception.status = new_status
-                reception.save(update_fields=["status"])
+                update_fields.append("status")
+
+            # Handle invoice fields updates independently
+            if inv_image is not None:
+                reception.invoice_image_b64 = inv_image or ""
+                update_fields.append("invoice_image_b64")
+
+            if inv_date is not None:
+                if inv_date in ("", None):
+                    reception.invoice_date = None
+                else:
+                    try:
+                        reception.invoice_date = date_cls.fromisoformat(str(inv_date))
+                    except Exception:
+                        return Response({"detail": "Field 'invoice_date' must be ISO date YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+                update_fields.append("invoice_date")
+
+            if inv_time is not None:
+                if inv_time in ("", None):
+                    reception.invoice_time = None
+                else:
+                    try:
+                        reception.invoice_time = time_cls.fromisoformat(str(inv_time))
+                    except Exception:
+                        return Response({"detail": "Field 'invoice_time' must be ISO time HH:MM[:SS]."}, status=status.HTTP_400_BAD_REQUEST)
+                update_fields.append("invoice_time")
+
+            if inv_total is not None:
+                if inv_total in ("", None):
+                    reception.invoice_total = None
+                else:
+                    try:
+                        dec = Decimal(str(inv_total))
+                    except (InvalidOperation, TypeError, ValueError):
+                        return Response({"detail": "Field 'invoice_total' must be a decimal number."}, status=status.HTTP_400_BAD_REQUEST)
+                    if dec < 0:
+                        return Response({"detail": "Field 'invoice_total' must be greater than or equal to 0."}, status=status.HTTP_400_BAD_REQUEST)
+                    reception.invoice_total = dec
+                update_fields.append("invoice_total")
+
+            if update_fields:
+                reception.save(update_fields=update_fields)
 
             if items is not None:
                 ReceivedProduct.objects.filter(reception=reception).delete()
