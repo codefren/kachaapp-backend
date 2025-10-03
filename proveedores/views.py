@@ -2,7 +2,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Exists, OuterRef, Subquery, Value, BooleanField, IntegerField
 from django.utils import timezone
 import datetime
 
@@ -15,6 +15,8 @@ from .serializers import (
     ProductSerializer,
     ProviderSerializer,
 )
+from market.models import LoginHistory
+from received.models import Reception
 
 FTP_HOST = getattr(settings, "PROVEEDORES_FTP_HOST", "localhost")
 FTP_USER = getattr(settings, "PROVEEDORES_FTP_USER", "anonymous")
@@ -141,3 +143,40 @@ class ProviderViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Provider.objects.all()
     serializer_class = ProviderSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def list(self, request, *args, **kwargs):
+        # Resolve user's market from latest LoginHistory
+        last = (
+            LoginHistory.objects.select_related("market")
+            .filter(user=request.user)
+            .order_by("-timestamp")
+            .first()
+        )
+        if not last:
+            return Response(
+                {"detail": "No market found for current user (no login history)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        market = last.market
+        # Annotate providers with has_draft_reception flag
+        subq = Reception.objects.filter(
+            status=Reception.Status.DRAFT,
+            market=market,
+            purchase_order__provider=OuterRef("pk"),
+        )
+        latest_draft_po_id = Subquery(
+            subq.order_by("-created_at").values("purchase_order_id")[:1]
+        )
+        qs = Provider.objects.all().annotate(
+            has_draft_reception=Exists(subq),
+            draft_reception_order_id=latest_draft_po_id,
+        )
+
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)

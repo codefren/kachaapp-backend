@@ -6,6 +6,7 @@ from rest_framework import status
 
 from purchase_orders.models import PurchaseOrder, PurchaseOrderItem
 from proveedores.models import Provider, Product, ProductFavorite, ProductBarcode
+from market.models import Market, LoginHistory
 
 
 class ProveedoresAPITests(APITestCase):
@@ -16,6 +17,15 @@ class ProveedoresAPITests(APITestCase):
         self.user = User.objects.create_user(username="tester", password="pass1234")
         # Autenticar todas las peticiones del cliente de prueba
         self.client.force_authenticate(user=self.user)
+        # Crear un market y LoginHistory para que /api/providers/ retorne 200
+        self.market = Market.objects.create(name="API Test Market", latitude=41.0, longitude=2.0)
+        LoginHistory.objects.create(
+            user=self.user,
+            market=self.market,
+            latitude=self.market.latitude,
+            longitude=self.market.longitude,
+            event_type=LoginHistory.LOGIN,
+        )
         self.provider = Provider.objects.create(
             name="Proveedor A",
             order_deadline_time=time(14, 30),
@@ -51,7 +61,6 @@ class ProveedoresAPITests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(len(res.data), 1)
         self.assertIn("name", res.data[0])
-        self.assertIn("products_count", res.data[0])
 
     def test_create_and_retrieve_purchase_order(self):
         url = "/api/purchase-orders/"

@@ -7,16 +7,27 @@ from rest_framework import status
 
 from purchase_orders.models import PurchaseOrder
 from proveedores.models import Provider
+from market.models import Market, LoginHistory
 
 
-def test_list_providers(auth_client, provider):
+def test_list_providers(auth_client, provider, user):
     """Verifica que se pueda listar proveedores."""
+    # Crear LoginHistory requerido para listar proveedores
+    market = Market.objects.create(name="Test Market", latitude=41.4, longitude=2.1)
+    LoginHistory.objects.create(
+        user=user,
+        market=market,
+        latitude=market.latitude,
+        longitude=market.longitude,
+        event_type=LoginHistory.LOGIN,
+    )
     url = "/api/providers/"
     res = auth_client.get(url)
     assert res.status_code == status.HTTP_200_OK
     assert len(res.data) >= 1
     assert "name" in res.data[0]
-    assert "products_count" in res.data[0]
+    # Aseguramos campos actuales del serializer
+    assert "has_received_orders" in res.data[0]
 
 
 def test_provider_has_received_orders_flag(auth_client, provider, user):
@@ -61,6 +72,15 @@ def test_provider_has_received_orders_flag(auth_client, provider, user):
     assert has_received3["order_id"] == po_draft.id
 
     # Verificar también en la lista de proveedores (debe devolver la más reciente: DRAFT)
+    # Crear LoginHistory para permitir listar proveedores
+    market = Market.objects.create(name="Test Market", latitude=41.4, longitude=2.1)
+    LoginHistory.objects.create(
+        user=user,
+        market=market,
+        latitude=market.latitude,
+        longitude=market.longitude,
+        event_type=LoginHistory.LOGIN,
+    )
     list_url = "/api/providers/"
     res_list = auth_client.get(list_url)
     assert res_list.status_code == status.HTTP_200_OK
@@ -72,7 +92,7 @@ def test_provider_has_received_orders_flag(auth_client, provider, user):
     assert provider_has_received["order_id"] == po_draft.id
 
 
-def test_provider_order_schedule_fields(auth_client, provider):
+def test_provider_order_schedule_fields(auth_client, provider, user):
     """Test que verifica que los campos de horario de pedidos se devuelven correctamente."""
     # Configurar proveedor con días laborales (Lun-Vie) y hora límite 14:30
     provider.order_available_weekdays = [0, 1, 2, 3, 4]  # Lun-Vie
@@ -97,6 +117,15 @@ def test_provider_order_schedule_fields(auth_client, provider):
     assert isinstance(res.data["order_available_dates"], list)
 
     # Verificar también en la lista de proveedores
+    # Crear LoginHistory para permitir listar proveedores
+    market = Market.objects.create(name="Test Market", latitude=41.4, longitude=2.1)
+    LoginHistory.objects.create(
+        user=user,
+        market=market,
+        latitude=market.latitude,
+        longitude=market.longitude,
+        event_type=LoginHistory.LOGIN,
+    )
     list_url = "/api/providers/"
     res_list = auth_client.get(list_url)
     assert res_list.status_code == status.HTTP_200_OK

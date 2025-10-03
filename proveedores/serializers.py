@@ -10,9 +10,10 @@ from .models import (
 
 
 class ProviderSerializer(serializers.ModelSerializer):
-    products_count = serializers.IntegerField(source="products.count", read_only=True)
     has_received_orders = serializers.SerializerMethodField()
     order_available_dates = serializers.SerializerMethodField()
+    has_draft_reception = serializers.BooleanField(read_only=True)
+    draft_reception_order_id = serializers.IntegerField(read_only=True, allow_null=True)
 
     class Meta:
         model = Provider
@@ -22,10 +23,9 @@ class ProviderSerializer(serializers.ModelSerializer):
             "order_deadline_time",
             "order_available_weekdays",
             "order_available_dates",
-            "created_at",
-            "updated_at",
-            "products_count",
             "has_received_orders",
+            "has_draft_reception",
+            "draft_reception_order_id",
         )
 
     @extend_schema_field({
