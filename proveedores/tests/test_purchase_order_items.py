@@ -4,7 +4,7 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework import status
 
-from proveedores.models import PurchaseOrder, PurchaseOrderItem
+from purchase_orders.models import PurchaseOrder, PurchaseOrderItem
 
 
 def test_list_purchase_order_items(auth_client, provider, user, product1, product2):
