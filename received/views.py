@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from django.db import transaction
 from decimal import Decimal, InvalidOperation
 from datetime import date as date_cls, time as time_cls
+from django.db.models import Q
 
 from purchase_orders.serializers import PurchaseOrderSerializer
 from proveedores.models import Product, ProductBarcode
@@ -286,6 +287,44 @@ class ReceptionViewSet(viewsets.ViewSet):
             .only("id", "invoice_image_b64", "created_at")
             .order_by("-created_at")
         )
+        data = [
+            {
+                "id": r.id,
+                "invoice_image_b64": r.invoice_image_b64,
+            }
+            for r in qs
+        ]
+        return Response(data)
+
+    @action(detail=False, methods=["get"], url_path="completed")
+    def completed(self, request):
+        market = self._get_user_market(request.user)
+        if not market:
+            return Response(
+                {"detail": "No market found for current user (no login history)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        date_str = request.query_params.get("date")
+        filter_date = None
+        if date_str:
+            try:
+                filter_date = date_cls.fromisoformat(str(date_str))
+            except Exception:
+                return Response(
+                    {"detail": "Query param 'date' must be ISO date YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        qs = (
+            Reception.objects
+            .filter(market=market, status=Reception.Status.COMPLETED)
+        )
+
+        if filter_date:
+            qs = qs.filter(created_at__date=filter_date)
+
+        qs = qs.only("id", "invoice_image_b64", "created_at", "invoice_date").order_by("-created_at")
         data = [
             {
                 "id": r.id,
