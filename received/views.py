@@ -306,13 +306,35 @@ class ReceptionViewSet(viewsets.ViewSet):
             )
 
         date_str = request.query_params.get("date")
+        invoice_date_str = request.query_params.get("invoice_date")
+        provider_str = request.query_params.get("provider")
         filter_date = None
+        filter_invoice_date = None
+        provider_id = None
         if date_str:
             try:
                 filter_date = date_cls.fromisoformat(str(date_str))
             except Exception:
                 return Response(
                     {"detail": "Query param 'date' must be ISO date YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        if provider_str is not None:
+            try:
+                provider_id = int(provider_str)
+                if provider_id <= 0:
+                    raise ValueError
+            except Exception:
+                return Response(
+                    {"detail": "Query param 'provider' must be a positive integer."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        if invoice_date_str:
+            try:
+                filter_invoice_date = date_cls.fromisoformat(str(invoice_date_str))
+            except Exception:
+                return Response(
+                    {"detail": "Query param 'invoice_date' must be ISO date YYYY-MM-DD."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -323,6 +345,12 @@ class ReceptionViewSet(viewsets.ViewSet):
 
         if filter_date:
             qs = qs.filter(created_at__date=filter_date)
+
+        if filter_invoice_date:
+            qs = qs.filter(invoice_date=filter_invoice_date)
+
+        if provider_id is not None:
+            qs = qs.filter(purchase_order__provider_id=provider_id)
 
         qs = qs.only("id", "invoice_image_b64", "created_at", "invoice_date").order_by("-created_at")
         data = [
