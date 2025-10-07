@@ -1,4 +1,4 @@
-"""Configuración compartida de pytest para tests de proveedores."""
+"""Configuración compartida de pytest para tests de purchase_orders."""
 
 import pytest
 from datetime import time
@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from proveedores.models import Provider, Product
+from market.models import Market, LoginHistory
 
 
 @pytest.fixture
@@ -52,3 +53,27 @@ def product2(provider):
     product = Product.objects.create(name="Producto 2", sku="SKU-2")
     product.providers.add(provider)
     return product
+
+
+# --- Fixtures para Market/LoginHistory ---
+
+@pytest.fixture
+def market(db):
+    """Market base para asociar en LoginHistory."""
+    return Market.objects.create(name="Mercado Test", latitude=41.387, longitude=2.170)
+
+
+@pytest.fixture(autouse=True)
+def user_login_history(user, market):
+    """Asegura que el usuario autenticado tenga un LoginHistory reciente para derivar el market.
+
+    Autouse para que todas las pruebas que creen órdenes encuentren el market.
+    """
+    LoginHistory.objects.create(
+        user=user,
+        market=market,
+        latitude=market.latitude,
+        longitude=market.longitude,
+        event_type=LoginHistory.LOGIN,
+    )
+    return True
