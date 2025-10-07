@@ -4,6 +4,7 @@ from rest_framework import serializers
 
 from proveedores.models import Product
 from .models import PurchaseOrder, PurchaseOrderItem
+from market.models import LoginHistory
 
 
 class PurchaseOrderItemSerializer(serializers.ModelSerializer):
@@ -103,11 +104,12 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             "ordered_by_username",
             "status",
             "notes",
+            "market",
             "items",
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "created_at", "updated_at", "ordered_by")
+        read_only_fields = ("id", "created_at", "updated_at", "ordered_by", "market")
 
     def create(self, validated_data):
         """Create a purchase order with consolidated items."""
@@ -116,6 +118,17 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if request is not None and not request.user.is_anonymous:
             validated_data["ordered_by"] = request.user
+            # Asignar market desde el último LoginHistory del usuario
+            last = (
+                LoginHistory.objects.select_related("market")
+                .filter(user=request.user)
+                .order_by("-timestamp")
+                .only("market_id")
+                .first()
+            )
+            if not last or not last.market_id:
+                raise serializers.ValidationError({"market": "No market found for current user (no login history)."})
+            validated_data["market"] = last.market
         order = PurchaseOrder.objects.create(**validated_data)
         
         # Consolidar por (product_id, purchase_unit="boxes") para respetar la restricción de unicidad
@@ -166,6 +179,8 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         """Update a purchase order and recreate consolidated items."""
         items_data = validated_data.pop("items", None)
+        # Bloquear cambios de market por payload
+        validated_data.pop("market", None)
         validated_data.pop("ordered_by", None)
         
         for attr, value in validated_data.items():

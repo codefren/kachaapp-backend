@@ -15,7 +15,7 @@ from .serializers import PurchaseOrderSerializer, PurchaseOrderItemSerializer
 class PurchaseOrderViewSet(viewsets.ModelViewSet):
     """ViewSet for purchase orders with custom actions."""
     
-    queryset = PurchaseOrder.objects.select_related("provider", "ordered_by").prefetch_related(
+    queryset = PurchaseOrder.objects.select_related("provider", "ordered_by", "market").prefetch_related(
         Prefetch("items", queryset=PurchaseOrderItem.objects.select_related("product"))
     )
     serializer_class = PurchaseOrderSerializer
