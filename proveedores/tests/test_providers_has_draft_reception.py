@@ -87,7 +87,9 @@ def test_providers_list_has_draft_reception_completed_is_false(auth_client, user
 
 @pytest.mark.django_db
 def test_providers_list_requires_login_history(auth_client, user, provider):
-    # No LoginHistory for this user
+    # Asegurar que NO haya LoginHistory para este usuario (auth_client lo crea)
+    LoginHistory.objects.filter(user=user).delete()
+
     res = auth_client.get("/api/providers/")
     assert res.status_code == status.HTTP_400_BAD_REQUEST
     assert "no market" in res.data["detail"].lower()

@@ -19,6 +19,14 @@ class PurchaseOrder(models.Model):
     provider = models.ForeignKey(
         "proveedores.Provider", on_delete=models.PROTECT, related_name="purchase_orders"
     )
+    market = models.ForeignKey(
+        "market.Market",
+        on_delete=models.PROTECT,
+        related_name="purchase_orders",
+        null=True,
+        blank=True,
+        db_index=True,
+    )
     ordered_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="purchase_orders"
     )
@@ -35,6 +43,7 @@ class PurchaseOrder(models.Model):
         indexes = [
             models.Index(fields=["provider", "status"], name="idx_po_provider_status"),
             models.Index(fields=["created_at"], name="idx_po_created_at"),
+            models.Index(fields=["market"], name="idx_po_market"),
         ]
 
     def __str__(self):
