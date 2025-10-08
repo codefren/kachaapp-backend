@@ -61,6 +61,21 @@ class ProveedoresAPITests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(len(res.data), 1)
         self.assertIn("name", res.data[0])
+        # Nuevo campo presente
+        self.assertIn("last_shipped_order_id", res.data[0])
+
+        # Inicialmente sin órdenes SHIPPED en el market -> debe ser null
+        by_id = {p["id"]: p for p in res.data}
+        self.assertIsNone(by_id[self.provider.id].get("last_shipped_order_id"))
+
+        # Crear dos órdenes SHIPPED en el mismo market de LoginHistory
+        po1 = PurchaseOrder.objects.create(provider=self.provider, ordered_by=self.user, market=self.market, status="SHIPPED")
+        po2 = PurchaseOrder.objects.create(provider=self.provider, ordered_by=self.user, market=self.market, status="SHIPPED")
+
+        res2 = self.client.get(url)
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        by_id2 = {p["id"]: p for p in res2.data}
+        self.assertEqual(by_id2[self.provider.id].get("last_shipped_order_id"), po2.id)
 
     def test_create_and_retrieve_purchase_order(self):
         url = "/api/purchase-orders/"

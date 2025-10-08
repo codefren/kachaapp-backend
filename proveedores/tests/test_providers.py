@@ -28,6 +28,7 @@ def test_list_providers(auth_client, provider, user):
     assert "name" in res.data[0]
     # Aseguramos campos actuales del serializer
     assert "has_received_orders" in res.data[0]
+    assert "last_shipped_order_id" in res.data[0]
 
 
 def test_provider_has_received_orders_flag(auth_client, provider, user):

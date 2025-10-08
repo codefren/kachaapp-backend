@@ -11,6 +11,7 @@ from ftplib import FTP
 import io
 import json
 from .models import Product, Provider, ProductFavorite
+from purchase_orders.models import PurchaseOrder
 from .serializers import (
     ProductSerializer,
     ProviderSerializer,
@@ -168,9 +169,20 @@ class ProviderViewSet(viewsets.ReadOnlyModelViewSet):
         latest_draft_po_id = Subquery(
             subq.order_by("-created_at").values("purchase_order_id")[:1]
         )
+        # Annotate providers with last SHIPPED purchase order id for this market
+        shipped_po_subq = PurchaseOrder.objects.filter(
+            status=PurchaseOrder.Status.SHIPPED,
+            market=market,
+            provider=OuterRef("pk"),
+        )
+        last_shipped_order_id = Subquery(
+            shipped_po_subq.order_by("-created_at").values("id")[:1]
+        )
+
         qs = Provider.objects.all().annotate(
             has_draft_reception=Exists(subq),
             draft_reception_order_id=latest_draft_po_id,
+            last_shipped_order_id=last_shipped_order_id,
         )
 
         page = self.paginate_queryset(qs)

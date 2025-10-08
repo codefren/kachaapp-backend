@@ -14,6 +14,7 @@ class ProviderSerializer(serializers.ModelSerializer):
     order_available_dates = serializers.SerializerMethodField()
     has_draft_reception = serializers.BooleanField(read_only=True)
     draft_reception_order_id = serializers.IntegerField(read_only=True, allow_null=True)
+    last_shipped_order_id = serializers.IntegerField(read_only=True, allow_null=True)
 
     class Meta:
         model = Provider
@@ -26,6 +27,7 @@ class ProviderSerializer(serializers.ModelSerializer):
             "has_received_orders",
             "has_draft_reception",
             "draft_reception_order_id",
+            "last_shipped_order_id",
         )
 
     @extend_schema_field({
