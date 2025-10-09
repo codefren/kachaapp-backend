@@ -108,7 +108,18 @@ class SearchReceivedProductViewSet(viewsets.ModelViewSet):
             "provider_name": purchase_order.provider.name,
             "product_id": product.id,
             "product_name": product.name,
-            "image": (product.image.url if getattr(product, "image", None) and product.image else None),
+            # Build absolute HTTPS image URL (mirror of serializer get_image logic)
+            "image": (lambda: (
+                (lambda img_field: (
+                    (lambda: (
+                        (lambda url: (
+                            (lambda abs_url: (
+                                ("https://" + abs_url[len("http://"):]) if abs_url.startswith("http://") else abs_url
+                            ))(request.build_absolute_uri(url) if request is not None else url)
+                        ))(img_field.url)
+                    ))() if img_field else None
+                ))(getattr(product, "image", None))
+            ))(),
             "product_sku": getattr(product, "sku", None),
             "barcode_scanned": barcode,
             "quantity_ordered": order_item.quantity_units,
