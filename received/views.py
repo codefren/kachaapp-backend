@@ -253,6 +253,7 @@ class ReceptionViewSet(viewsets.ViewSet):
             "status": reception.status,
             "created_at": reception.created_at,
             "invoice_image_b64": reception.invoice_image_b64,
+            "image": reception.invoice_image_b64,
             "invoice_date": reception.invoice_date,
             "invoice_time": reception.invoice_time,
             "invoice_total": str(reception.invoice_total) if reception.invoice_total is not None else None,
