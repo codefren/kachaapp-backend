@@ -38,11 +38,12 @@ class SearchReceivedProductViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="by-barcode")
     def by_barcode(self, request, pk=None):
         barcode = request.query_params.get("barcode")
+        name = request.query_params.get("name")
         purchase_order_id = pk
 
-        if not barcode:
+        if not barcode and not name:
             return Response(
-                {"detail": "Barcode parameter is required."},
+                {"detail": "Provide either 'barcode' or 'name' as query parameter."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -55,17 +56,38 @@ class SearchReceivedProductViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Find product by barcode
-        try:
-            product_barcode = ProductBarcode.objects.select_related("product").get(
-                code=barcode
+        # Resolve product either by barcode or by name within this purchase order
+        product = None
+        if barcode:
+            # Find product by barcode
+            try:
+                product_barcode = ProductBarcode.objects.select_related("product").get(
+                    code=barcode
+                )
+                product = product_barcode.product
+            except ProductBarcode.DoesNotExist:
+                return Response(
+                    {"detail": f"No product found with barcode '{barcode}'."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+        else:
+            # Find by product name within the purchase order
+            name_matches = (
+                PurchaseOrderItem.objects.select_related("product")
+                .filter(order=purchase_order, product__name__icontains=name)
             )
-            product = product_barcode.product
-        except ProductBarcode.DoesNotExist:
-            return Response(
-                {"detail": f"No product found with barcode '{barcode}'."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            count = name_matches.count()
+            if count == 0:
+                return Response(
+                    {"detail": f"No product found with name containing '{name}'."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            if count > 1:
+                return Response(
+                    {"detail": f"Multiple products match the name '{name}'. Please refine your search."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            product = name_matches.first().product
 
         # Verify product is in the purchase order and get item
         try:
