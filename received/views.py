@@ -86,6 +86,7 @@ class SearchReceivedProductViewSet(viewsets.ModelViewSet):
             "provider_name": purchase_order.provider.name,
             "product_id": product.id,
             "product_name": product.name,
+            "image": product.image,
             "product_sku": getattr(product, "sku", None),
             "barcode_scanned": barcode,
             "quantity_ordered": order_item.quantity_units,
