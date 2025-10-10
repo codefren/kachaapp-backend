@@ -67,7 +67,7 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        base_qs = self.get_queryset().filter(created_at__date=d)
+        base_qs = self.get_queryset().filter(created_at__date=d, status=PurchaseOrder.Status.DRAFT)
         # Filtro opcional por proveedor: ?provider=<id>
         provider_id = request.query_params.get("provider")
         if provider_id is not None:
