@@ -103,6 +103,17 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
             if name_q:
                 qs = qs.filter(name__icontains=name_q)
 
+            # Filtro por proveedor: acepta 'provider' o 'provider_id'
+            provider_q = request.query_params.get("provider") or request.query_params.get("provider_id")
+            if provider_q:
+                try:
+                    pid = int(str(provider_q).strip())
+                    if pid > 0:
+                        qs = qs.filter(providers__id=pid)
+                except Exception:
+                    # Si no es entero, filtrar por nombre del proveedor (icontains)
+                    qs = qs.filter(providers__name__icontains=str(provider_q).strip())
+
             # Ordenamiento por nombre: ?ordering=name (ascendente) o ?ordering=-name (descendente)
             ordering = request.query_params.get("ordering")
             if ordering == "name":
