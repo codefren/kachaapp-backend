@@ -1,0 +1,14 @@
+#!/bin/bash
+
+set -o errexit
+set -o nounset
+
+until timeout 10 celery -A config.celery_app inspect ping; do
+    >&2 echo "Celery workers not available"
+done
+
+echo 'Starting flower'
+
+exec watchfiles --filter python celery.__main__.main \
+    --args \
+    "-A config.celery_app -b \"${REDIS_URL:-redis://redis:6379}\" flower --basic_auth=\"${CELERY_FLOWER_USER:-admin}:${CELERY_FLOWER_PASSWORD:-admin}\""
