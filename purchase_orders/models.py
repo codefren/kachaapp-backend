@@ -12,6 +12,7 @@ class PurchaseOrder(models.Model):
     class Status(models.TextChoices):
         DRAFT = "DRAFT", "Draft"
         PLACED = "PLACED", "Placed"
+        IN_PROCESS = "IN_PROCESS", "In process"
         RECEIVED = "RECEIVED", "Received"
         SHIPPED = "SHIPPED", "Shipped"
         CANCELED = "CANCELED", "Canceled"

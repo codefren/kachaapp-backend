@@ -56,7 +56,7 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         date_str = request.query_params.get("date")
         if not date_str:
             return Response(
-                {"detail": "El parámetro 'date' es requerido."}, 
+                {"detail": "El parámetro 'date' es requerido."},
                 status=status.HTTP_400_BAD_REQUEST
             )
         try:
