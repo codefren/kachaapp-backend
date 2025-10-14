@@ -1,0 +1,142 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block content %}
+<div class="container" style="max-width: 100%;">
+  <style>
+    /* Estados visuales por columna con efecto sombra (overlay sutil) */
+    th.market-enabled, td.market-enabled {
+      box-shadow: inset 0 0 0 9999px rgba(0, 128, 0, 0.08);
+      transition: box-shadow 120ms ease-in-out;
+    }
+    th.market-disabled, td.market-disabled {
+      box-shadow: inset 0 0 0 9999px rgba(220, 0, 0, 0.10);
+      transition: box-shadow 120ms ease-in-out;
+    }
+    /* Mantener contraste en celdas con enlace */
+    td.market-enabled a, td.market-disabled a { color: inherit; }
+  </style>
+
+  {# Controles integrados en el header para alinear exactamente con columnas #}
+
+  {% if error %}
+    <div class="errornote">{{ error }}</div>
+  {% endif %}
+
+  {% if markets and rows %}
+  <h1 style="margin: 8px 0 12px;">{{ provider_name }}</h1>
+  <div class="results" style="overflow:auto;">
+    {# Tabla de controles separada, alineada por columnas #}
+    <table class="adminlist" id="pivot-controls" style="min-width: 800px; table-layout: fixed; margin-bottom: 8px;">
+      <colgroup>
+        <col style="width: 240px;" />
+        {% for m in markets %}
+          <col style="width: 140px;" />
+        {% endfor %}
+        <col style="width: 100px;" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th style="text-align:left;">Tiendas visibles</th>
+          {% for m in markets %}
+            <th class="market-col-{{ m.id }} market-enabled" data-market-id="{{ m.id }}">
+              <label style="display:flex; align-items:center; gap:6px; justify-content:center;">
+                <input type="checkbox" class="js-toggle-market" data-market-id="{{ m.id }}" checked />
+                <span>{{ m.name }}</span>
+              </label>
+            </th>
+          {% endfor %}
+          <th>Total</th>
+        </tr>
+      </thead>
+    </table>
+
+    <table class="adminlist" id="pivot-table" style="min-width: 800px; table-layout: fixed;">
+      <colgroup>
+        <col style="width: 240px;" />
+        {% for m in markets %}
+          <col style="width: 140px;" />
+        {% endfor %}
+        <col style="width: 100px;" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th style="position: sticky; left: 0; background: var(--body-bg); z-index: 2;">Producto</th>
+          {% for m in markets %}
+            <th class="market-header market-col-{{ m.id }} market-enabled" data-market-id="{{ m.id }}">{{ m.name }}</th>
+          {% endfor %}
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <th style="position: sticky; left: 0; background: var(--body-bg); z-index: 1; text-align:left;">{{ row.product.name }}</th>
+            {% for entry in row.entries %}
+              {% if entry.cell %}
+                <td class="market-cell market-col-{{ entry.market_id }} market-enabled" data-market-id="{{ entry.market_id }}">
+                  <a href="{{ entry.cell.url }}"><span class="qty" data-qty="{{ entry.cell.qty }}">{{ entry.cell.qty }}</span></a>
+                </td>
+              {% else %}
+                <td class="market-cell market-empty market-col-{{ entry.market_id }} market-enabled" data-market-id="{{ entry.market_id }}" style="color:#aaa;">—</td>
+              {% endif %}
+            {% endfor %}
+            <td class="row-total"><strong><span class="row-total-val">{{ row.total }}</span></strong></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+<script>
+(function(){
+  function qsAll(sel, ctx){ return Array.prototype.slice.call((ctx||document).querySelectorAll(sel)); }
+  function on(el, ev, fn){ el.addEventListener(ev, fn, false); }
+
+  var checks = qsAll('.js-toggle-market');
+  if (!checks.length) return;
+
+  function setColumnState(marketId, enabled){
+    qsAll('.market-col-' + marketId).forEach(function(el){
+      el.classList.toggle('market-enabled', !!enabled);
+      el.classList.toggle('market-disabled', !enabled);
+    });
+  }
+
+  function recalcRowTotals(){
+    var enabled = new Set();
+    checks.forEach(function(ch){ if (ch.checked) enabled.add(String(ch.getAttribute('data-market-id'))); });
+    qsAll('#pivot-table tbody tr').forEach(function(tr){
+      var sum = 0;
+      qsAll('td.market-cell', tr).forEach(function(td){
+        var mid = String(td.getAttribute('data-market-id'));
+        if (!enabled.has(mid)) return;
+        var span = td.querySelector('.qty');
+        if (span) {
+          var v = parseInt(span.getAttribute('data-qty') || '0', 10);
+          if (!isNaN(v)) sum += v;
+        }
+      });
+      var out = tr.querySelector('.row-total-val');
+      if (out) out.textContent = String(sum);
+    });
+  }
+
+  // Inicializar (todas habilitadas en verde)
+  checks.forEach(function(ch){ setColumnState(ch.getAttribute('data-market-id'), true); });
+  recalcRowTotals();
+
+  // Listeners
+  checks.forEach(function(ch){
+    on(ch, 'change', function(){
+      var id = ch.getAttribute('data-market-id');
+      setColumnState(id, ch.checked);
+      recalcRowTotals();
+    });
+  });
+})();
+</script>
+
+{% endblock %}
+
+
