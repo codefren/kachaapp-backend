@@ -38,10 +38,14 @@ CACHES = {
 
 # EMAIL
 # ------------------------------------------------------------------------------
-# https://docs.djangoproject.com/en/dev/ref/settings/#email-host
-EMAIL_HOST = env("EMAIL_HOST", default="mailpit")
-# https://docs.djangoproject.com/en/dev/ref/settings/#email-port
-EMAIL_PORT = 1025
+# Para desarrollo local sin Docker, usar console backend
+if env("USE_DOCKER") == "no":
+    # Mostrar emails en consola para desarrollo
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+else:
+    # Configuración para Docker con mailpit
+    EMAIL_HOST = env("EMAIL_HOST", default="mailpit")
+    EMAIL_PORT = 1025
 
 # WhiteNoise
 # ------------------------------------------------------------------------------
@@ -99,6 +103,12 @@ CORS_ALLOWED_ORIGINS = env.list(
     ],
 )
 CORS_ALLOW_CREDENTIALS = True
+
+# django-allauth
+# ------------------------------------------------------------------------------
+# Deshabilitar verificación de email para desarrollo local
+if env("USE_DOCKER") == "no":
+    ACCOUNT_EMAIL_VERIFICATION = "none"
 
 # Your stuff...
 # ------------------------------------------------------------------------------
