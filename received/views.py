@@ -5,7 +5,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
 from decimal import Decimal, InvalidOperation
-from datetime import date as date_cls, time as time_cls
+from datetime import date as date_cls, time as time_cls, datetime
 from django.db.models import Q
 
 from purchase_orders.serializers import PurchaseOrderSerializer
@@ -13,6 +13,59 @@ from proveedores.models import Product, ProductBarcode
 from purchase_orders.models import PurchaseOrder, PurchaseOrderItem
 from received.models import ReceivedProduct, Reception
 from market.models import LoginHistory
+import re
+
+
+def parse_12hour_time(time_str):
+    """
+    Convierte tiempo en formato 12 horas (HH:MM AM/PM) a objeto time de 24 horas.
+    
+    Formatos aceptados:
+    - "2:30 PM", "02:30 PM", "14:30"
+    - "10:15 AM", "10:15 am", "22:15"
+    
+    Returns:
+        time object en formato 24 horas
+    Raises:
+        ValueError: si el formato no es válido
+    """
+    if not time_str or not isinstance(time_str, str):
+        raise ValueError("Time string is required")
+    
+    time_str = time_str.strip()
+    
+    # Patrón para formato 12 horas: HH:MM AM/PM (case insensitive)
+    pattern_12h = r'^(\d{1,2}):(\d{2})\s*(AM|PM)$'
+    match = re.match(pattern_12h, time_str.upper())
+    
+    if match:
+        hour = int(match.group(1))
+        minute = int(match.group(2))
+        period = match.group(3)
+        
+        # Validaciones básicas
+        if hour < 1 or hour > 12:
+            raise ValueError("Hour must be between 1 and 12 for 12-hour format")
+        if minute < 0 or minute > 59:
+            raise ValueError("Minutes must be between 0 and 59")
+        
+        # Convertir a formato 24 horas
+        if period == 'AM':
+            if hour == 12:
+                hour = 0  # 12:XX AM = 00:XX
+        else:  # PM
+            if hour != 12:
+                hour += 12  # 1:XX PM = 13:XX, pero 12:XX PM = 12:XX
+        
+        return time_cls(hour, minute)
+    
+    # Si no coincide con formato 12h, intentar formato 24h como fallback
+    try:
+        return time_cls.fromisoformat(time_str)
+    except ValueError:
+        raise ValueError(
+            "Invalid time format. Use 'HH:MM AM/PM' (e.g., '2:30 PM') or 'HH:MM' (24-hour format)"
+        )
 
 
 class SearchReceivedProductViewSet(viewsets.ModelViewSet):
@@ -452,9 +505,17 @@ class ReceptionViewSet(viewsets.ViewSet):
                     reception.invoice_time = None
                 else:
                     try:
-                        reception.invoice_time = time_cls.fromisoformat(str(inv_time))
+                        reception.invoice_time = parse_12hour_time(str(inv_time))
+                    except ValueError as e:
+                        return Response(
+                            {"detail": f"Field 'invoice_time' error: {str(e)}"}, 
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
                     except Exception:
-                        return Response({"detail": "Field 'invoice_time' must be ISO time HH:MM[:SS]."}, status=status.HTTP_400_BAD_REQUEST)
+                        return Response(
+                            {"detail": "Field 'invoice_time' must be in format 'HH:MM AM/PM' (e.g., '2:30 PM')."}, 
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
                 update_fields.append("invoice_time")
 
             if inv_total is not None:
