@@ -347,6 +347,7 @@ class ReceptionViewSet(viewsets.ViewSet):
                     "barcode_scanned": r.barcode_scanned,
                     "quantity_received": r.quantity_received,
                     "is_damaged": r.is_damaged,
+                    "is_under_received": r.is_under_received,
                     "notes": r.notes,
                     "received_at": r.received_at,
                 }
