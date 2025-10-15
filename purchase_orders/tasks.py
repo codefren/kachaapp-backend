@@ -8,8 +8,6 @@ from celery import shared_task
 from django.db import transaction
 from django.utils import timezone
 
-from .models import PurchaseOrder
-
 logger = logging.getLogger(__name__)
 
 
@@ -25,6 +23,9 @@ def update_expired_purchase_orders(self):
     Returns:
         dict: Resumen de la ejecución con contadores y detalles
     """
+    # Importar modelos dentro de la función para evitar AppRegistryNotReady
+    from .models import PurchaseOrder
+    
     logger.info("Iniciando verificación de órdenes de compra expiradas")
     
     # Obtener fecha y hora actuales
@@ -129,6 +130,9 @@ def check_single_purchase_order(self, order_id: int):
     Returns:
         dict: Resultado de la verificación
     """
+    # Importar modelos dentro de la función para evitar AppRegistryNotReady
+    from .models import PurchaseOrder
+    
     try:
         order = PurchaseOrder.objects.select_related('provider').get(pk=order_id)
         
@@ -172,13 +176,15 @@ def check_single_purchase_order(self, order_id: int):
         
         return result
         
-    except PurchaseOrder.DoesNotExist:
-        return {
-            'order_id': order_id,
-            'error': 'Orden no encontrada'
-        }
     except Exception as e:
-        return {
-            'order_id': order_id,
-            'error': str(e)
-        }
+        # Manejar tanto PurchaseOrder.DoesNotExist como otros errores
+        if 'DoesNotExist' in str(type(e)):
+            return {
+                'order_id': order_id,
+                'error': 'Orden no encontrada'
+            }
+        else:
+            return {
+                'order_id': order_id,
+                'error': str(e)
+            }
