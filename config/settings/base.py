@@ -374,5 +374,14 @@ SPECTACULAR_SETTINGS = {
     "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAdminUser"],
     "SCHEMA_PATH_PREFIX": "/api/",
 }
+# DATA UPLOAD SETTINGS
+# ------------------------------------------------------------------------------
+# https://docs.djangoproject.com/en/dev/ref/settings/#data-upload-max-memory-size
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB (default is 2.5MB)
+# https://docs.djangoproject.com/en/dev/ref/settings/#data-upload-max-number-fields
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 2000  # default is 1000
+# https://docs.djangoproject.com/en/dev/ref/settings/#file-upload-max-memory-size
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB (default is 2.5MB)
+
 # Your stuff...
 # ------------------------------------------------------------------------------
