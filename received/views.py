@@ -274,10 +274,7 @@ class SearchReceivedProductViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # compute flags vs ordered quantity (no blocking rule)
-            is_over = qty > (poi.quantity_units or 0)
-            is_under = qty < (poi.quantity_units or 0)
-
+            # Los flags de estado se calculan automáticamente en el modelo
             rp = ReceivedProduct(
                 purchase_order=purchase_order,
                 product=product,
@@ -288,8 +285,6 @@ class SearchReceivedProductViewSet(viewsets.ModelViewSet):
                 is_damaged=is_damaged,
                 notes=notes,
                 received_by=request.user if not request.user.is_anonymous else None,
-                is_over_received=is_over,
-                is_under_received=is_under,
             )
             rp.save()
             created.append(rp.id)
@@ -589,9 +584,7 @@ class ReceptionViewSet(viewsets.ViewSet):
                             status=status.HTTP_400_BAD_REQUEST,
                         )
 
-                    is_over = qty > (poi.quantity_units or 0)
-                    is_under = qty < (poi.quantity_units or 0)
-
+                    # Los flags de estado se calculan automáticamente en el modelo
                     ReceivedProduct.objects.create(
                         purchase_order=reception.purchase_order,
                         product=product,
@@ -602,8 +595,6 @@ class ReceptionViewSet(viewsets.ViewSet):
                         is_damaged=is_damaged,
                         notes=notes,
                         received_by=request.user if not request.user.is_anonymous else None,
-                        is_over_received=is_over,
-                        is_under_received=is_under,
                     )
 
         return Response({"reception_id": reception.id, "status": reception.status})

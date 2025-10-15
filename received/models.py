@@ -184,7 +184,45 @@ class ReceivedProduct(models.Model):
                     "product": "This product does not belong to the selected purchase order."
                 })
 
+    def update_status_flags(self):
+        """
+        Actualiza los flags de estado basándose en la cantidad ordenada vs recibida.
+        
+        - is_missing: True si quantity_received = 0 (producto esperado pero no recibido)
+        - is_over_received: True si quantity_received > quantity_ordered
+        - is_under_received: True si 0 < quantity_received < quantity_ordered
+        """
+        if not self.purchase_order_id or not self.product_id:
+            return
+        
+        try:
+            from purchase_orders.models import PurchaseOrderItem
+            poi = PurchaseOrderItem.objects.get(
+                order_id=self.purchase_order_id,
+                product_id=self.product_id
+            )
+            quantity_ordered = poi.quantity_units or 0
+            
+            # Resetear flags
+            self.is_missing = False
+            self.is_over_received = False
+            self.is_under_received = False
+            
+            # Establecer flags según la lógica
+            if self.quantity_received == 0:
+                self.is_missing = True
+            elif self.quantity_received > quantity_ordered:
+                self.is_over_received = True
+            elif 0 < self.quantity_received < quantity_ordered:
+                self.is_under_received = True
+                
+        except Exception:
+            # Si no se puede obtener la cantidad ordenada, no actualizar flags
+            pass
+
     def save(self, *args, **kwargs):
-        """Execute validations before saving."""
+        """Execute validations and update status flags before saving."""
         self.full_clean()
+        # Actualizar flags automáticamente antes de guardar
+        self.update_status_flags()
         return super().save(*args, **kwargs)
