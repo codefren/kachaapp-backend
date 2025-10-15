@@ -2,6 +2,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from django.db.models import Prefetch, Exists, OuterRef, Subquery, Value, BooleanField, IntegerField
 from django.utils import timezone
 import datetime
@@ -23,6 +24,14 @@ FTP_HOST = getattr(settings, "PROVEEDORES_FTP_HOST", "localhost")
 FTP_USER = getattr(settings, "PROVEEDORES_FTP_USER", "anonymous")
 FTP_PASS = getattr(settings, "PROVEEDORES_FTP_PASS", "")
 FTP_JSON_PATH = getattr(settings, "PROVEEDORES_FTP_PATH", "/products.json")
+
+
+class ProductPagination(PageNumberPagination):
+    """Paginación personalizada para productos."""
+    
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
 
 @api_view(["POST"])  # type: ignore[valid-type]
@@ -82,6 +91,7 @@ def proveedores_root(request):
 class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = ProductPagination
 
     def get_queryset(self):
         qs = (
