@@ -93,7 +93,7 @@ LOCAL_APPS = [
     "market",
     # Your stuff: custom apps go here
     "proveedores",
-    "purchase_orders",
+    "purchase_orders.apps.PurchaseOrdersConfig",
     "received",
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
@@ -349,8 +349,6 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 20,
 }
 
 SIMPLE_JWT = {
