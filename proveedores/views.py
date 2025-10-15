@@ -128,6 +128,28 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
 
         return qs.distinct()
 
+    def list(self, request, *args, **kwargs):
+        """
+        Lista productos con paginación automática.
+        
+        Parámetros de consulta disponibles:
+        - page: Número de página (ej: ?page=2)
+        - page_size: Tamaño de página personalizado (ej: ?page_size=50)
+        - barcode: Filtrar por código de barras exacto
+        - name o q: Búsqueda por nombre (contiene)
+        - provider o provider_id: Filtrar por proveedor (ID o nombre)
+        - ordering: Ordenar por nombre (name o -name)
+        """
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
     @action(detail=True, methods=["post"], url_path="favorite")
     def favorite(self, request, pk=None):
         product = self.get_object()
