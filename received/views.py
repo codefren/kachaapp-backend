@@ -291,6 +291,129 @@ class SearchReceivedProductViewSet(viewsets.ModelViewSet):
 
         return Response({"reception_id": reception.id}, status=status.HTTP_200_OK)
 
+    @action(detail=True, methods=["post"], url_path="received-extra")
+    def received_extra(self, request, pk=None):
+        """POST: Register ONE extra product not in the purchase order.
+        Returns product info similar to by-barcode endpoint.
+        """
+        # Ensure purchase order exists
+        try:
+            purchase_order = self.queryset.get(id=pk)
+        except PurchaseOrder.DoesNotExist:
+            return Response(
+                {"detail": f"Purchase order #{pk} not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Resolve market from user's login history
+        market = self._get_user_market(request.user)
+        if not market:
+            return Response(
+                {"detail": "No market found for current user (no login history)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Extract and validate payload for single product
+        product_id = request.data.get("product_id")
+        barcode = request.data.get("barcode")
+        quantity_received = request.data.get("quantity_received")
+        is_damaged = request.data.get("is_damaged", False)
+        notes = request.data.get("notes", "")
+        reason = request.data.get("reason", "OTHER")
+
+        # Basic validations
+        if not (barcode or product_id) or (barcode and product_id):
+            return Response(
+                {"detail": "Provide either 'product_id' or 'barcode' (exclusively)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            quantity_received = int(quantity_received)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "'quantity_received' must be an integer."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if quantity_received < 0:
+            return Response(
+                {"detail": "'quantity_received' must be greater than or equal to 0."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Resolve product by ID or barcode
+        product = None
+        if product_id:
+            try:
+                product = Product.objects.get(id=product_id)
+            except Product.DoesNotExist:
+                return Response(
+                    {"detail": f"Product id {product_id} not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+        else:
+            try:
+                pb = ProductBarcode.objects.select_related("product").get(code=barcode)
+                product = pb.product
+            except ProductBarcode.DoesNotExist:
+                return Response(
+                    {"detail": f"No product found with barcode '{barcode}'."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        # Get or create reception for this purchase order and market
+        reception, created = Reception.objects.get_or_create(
+            purchase_order=purchase_order,
+            market=market,
+            defaults={
+                'received_by': request.user if not request.user.is_anonymous else None,
+            }
+        )
+
+        # Create ReceivedProduct with is_not_in_order=True
+        received_product = ReceivedProduct.objects.create(
+            purchase_order=purchase_order,
+            product=product,
+            market=market,
+            reception=reception,
+            barcode_scanned=barcode or "",
+            quantity_received=quantity_received,
+            is_damaged=is_damaged,
+            notes=notes,
+            is_not_in_order=True,  # Always True for this endpoint
+            reason_extra=reason,
+            received_by=request.user if not request.user.is_anonymous else None,
+        )
+
+        # Build response similar to by-barcode endpoint
+        result = {
+            "purchase_order_id": purchase_order.id,
+            "provider_name": purchase_order.provider.name,
+            "product_id": product.id,
+            "product_name": product.name,
+            # Build absolute HTTPS image URL (mirror of serializer get_image logic)
+            "image": (lambda: (
+                (lambda img_field: (
+                    (lambda: (
+                        (lambda url: (
+                            (lambda abs_url: (
+                                ("https://" + abs_url[len("http://"):]) if abs_url.startswith("http://") else abs_url
+                            ))(request.build_absolute_uri(url) if request is not None else url)
+                        ))(img_field.url)
+                    ))() if img_field else None
+                ))(getattr(product, "image", None))
+            ))(),
+            "product_sku": getattr(product, "sku", None),
+            "barcode_scanned": barcode,
+            "quantity_ordered": 0,  # Always 0 for extra products (not in order)
+            "purchase_unit": "units",  # Default unit for extra products
+            "amount_miss": 0,  # Always 0 (product was not expected)
+            "amount_boxes": getattr(product, "amount_boxes", 0),
+        }
+
+        return Response(result, status=status.HTTP_201_CREATED)
+
 
 class ReceptionViewSet(viewsets.ViewSet):
     """Gestiona recepciones: detalle y edición (status e items)."""
@@ -347,7 +470,11 @@ class ReceptionViewSet(viewsets.ViewSet):
                     "barcode_scanned": r.barcode_scanned,
                     "quantity_received": r.quantity_received,
                     "is_damaged": r.is_damaged,
+                    "is_missing": r.is_missing,
+                    "is_over_received": r.is_over_received,
                     "is_under_received": r.is_under_received,
+                    "is_not_in_order": r.is_not_in_order,
+                    "reason_extra": r.reason_extra,
                     "notes": r.notes,
                     "received_at": r.received_at,
                 }
