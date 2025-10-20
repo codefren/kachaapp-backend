@@ -151,6 +151,24 @@ class ReceivedProduct(models.Model):
         default=False,
         help_text="Quantity received is less than ordered for this product",
     )
+    is_not_in_order = models.BooleanField(
+        default=False,
+        help_text="True if this product was received but not in the original purchase order",
+    )
+
+    class ExtraProductReason(models.TextChoices):
+        PROMOTIONAL = "PROMOTIONAL", "Promotional/Gift"
+        SUBSTITUTE = "SUBSTITUTE", "Product Substitute"
+        ERROR = "ERROR", "Provider Error"
+        OTHER = "OTHER", "Other"
+
+    reason_extra = models.CharField(
+        max_length=20,
+        choices=ExtraProductReason.choices,
+        null=True,
+        blank=True,
+        help_text="Reason why this extra product was received",
+    )
 
     class Meta:
         ordering = ["-received_at"]
@@ -172,8 +190,8 @@ class ReceivedProduct(models.Model):
         if self.quantity_received < 0:
             raise ValidationError({"quantity_received": "Quantity must be greater than or equal to 0."})
         
-        # Validate that product belongs to the purchase order
-        if self.purchase_order_id and self.product_id:
+        # Solo validar que el producto esté en la orden si NO es un producto extra
+        if not self.is_not_in_order and self.purchase_order_id and self.product_id:
             from purchase_orders.models import PurchaseOrderItem
             exists = PurchaseOrderItem.objects.filter(
                 order_id=self.purchase_order_id,
@@ -188,6 +206,12 @@ class ReceivedProduct(models.Model):
         """
         Actualiza los flags de estado basándose en la cantidad ordenada vs recibida.
         
+        Para productos extra (is_not_in_order=True):
+        - is_missing: Siempre False (no se esperaba)
+        - is_over_received: True si quantity_received > 0
+        - is_under_received: Siempre False (no aplica)
+        
+        Para productos ordenados:
         - is_missing: True si quantity_received = 0 (producto esperado pero no recibido)
         - is_over_received: True si quantity_received > quantity_ordered
         - is_under_received: True si 0 < quantity_received < quantity_ordered
@@ -195,6 +219,19 @@ class ReceivedProduct(models.Model):
         if not self.purchase_order_id or not self.product_id:
             return
         
+        # Resetear flags
+        self.is_missing = False
+        self.is_over_received = False
+        self.is_under_received = False
+        
+        # Para productos extra (no en orden)
+        if self.is_not_in_order:
+            self.is_missing = False  # Nunca faltante (no se esperaba)
+            self.is_over_received = True if self.quantity_received > 0 else False
+            self.is_under_received = False  # No aplica
+            return
+        
+        # Lógica existente para productos ordenados
         try:
             from purchase_orders.models import PurchaseOrderItem
             poi = PurchaseOrderItem.objects.get(
@@ -202,11 +239,6 @@ class ReceivedProduct(models.Model):
                 product_id=self.product_id
             )
             quantity_ordered = poi.quantity_units or 0
-            
-            # Resetear flags
-            self.is_missing = False
-            self.is_over_received = False
-            self.is_under_received = False
             
             # Establecer flags según la lógica
             if self.quantity_received == 0:
