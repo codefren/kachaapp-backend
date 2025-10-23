@@ -55,7 +55,7 @@ class ReceptionAdmin(admin.ModelAdmin):
             "fields": ("purchase_order", "market", "status", "received_by", "created_at"),
         }),
         ("Invoice", {
-            "fields": ("invoice_image_b64", "invoice_date", "invoice_time", "invoice_total"),
+            "fields": ("invoice_image", "invoice_date", "invoice_time", "invoice_total"),
         }),
     )
 

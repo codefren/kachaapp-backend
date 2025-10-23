@@ -39,10 +39,11 @@ class Reception(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     # Campos de factura (opcionales, se actualizan por PATCH)
-    invoice_image_b64 = models.TextField(
+    invoice_image = models.ImageField(
+        upload_to="invoices/",
         blank=True,
-        default="",
-        help_text="Base64-encoded image of the invoice",
+        null=True,
+        help_text="Invoice image file",
     )
     invoice_date = models.DateField(
         null=True,

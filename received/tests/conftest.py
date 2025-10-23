@@ -7,6 +7,7 @@ from rest_framework.test import APIClient
 
 from proveedores.models import Provider, Product, ProductBarcode
 from purchase_orders.models import PurchaseOrder, PurchaseOrderItem
+from market.models import Market, LoginHistory
 
 
 @pytest.fixture
@@ -106,3 +107,35 @@ def purchase_order(provider, user, product1, product2):
         purchase_unit="boxes",
     )
     return po
+
+
+@pytest.fixture
+def market_a(db):
+    """First test market."""
+    return Market.objects.create(
+        name="Market A",
+        latitude=40.7128,
+        longitude=-74.0060,
+    )
+
+
+@pytest.fixture
+def market_b(db):
+    """Second test market."""
+    return Market.objects.create(
+        name="Market B",
+        latitude=40.7589,
+        longitude=-73.9851,
+    )
+
+
+@pytest.fixture
+def user_login_history(user, market_a):
+    """Create login history for user in market_a."""
+    return LoginHistory.objects.create(
+        user=user,
+        market=market_a,
+        latitude=40.7128,
+        longitude=-74.0060,
+        event_type=LoginHistory.LOGIN,
+    )

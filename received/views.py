@@ -12,6 +12,7 @@ from purchase_orders.serializers import PurchaseOrderSerializer
 from proveedores.models import Product, ProductBarcode
 from purchase_orders.models import PurchaseOrder, PurchaseOrderItem
 from received.models import ReceivedProduct, Reception
+from received.serializers import InvoiceImageUploadSerializer, ReceptionSerializer
 from market.models import LoginHistory
 import re
 
@@ -457,7 +458,7 @@ class ReceptionViewSet(viewsets.ViewSet):
             "market_id": reception.market_id,
             "status": reception.status,
             "created_at": reception.created_at,
-            "invoice_image_b64": reception.invoice_image_b64,
+            "invoice_image_url": request.build_absolute_uri(reception.invoice_image.url) if reception.invoice_image else None,
             "invoice_date": reception.invoice_date,
             "invoice_time": reception.invoice_time,
             "invoice_total": str(reception.invoice_total) if reception.invoice_total is not None else None,
@@ -495,13 +496,13 @@ class ReceptionViewSet(viewsets.ViewSet):
         qs = (
             Reception.objects
             .filter(market=market)
-            .only("id", "invoice_image_b64", "created_at")
+            .only("id", "invoice_image", "created_at")
             .order_by("-created_at")
         )
         data = [
             {
                 "id": r.id,
-                "invoice_image_b64": r.invoice_image_b64,
+                "invoice_image_url": request.build_absolute_uri(r.invoice_image.url) if r.invoice_image else None,
             }
             for r in qs
         ]
@@ -563,11 +564,11 @@ class ReceptionViewSet(viewsets.ViewSet):
         if provider_id is not None:
             qs = qs.filter(purchase_order__provider_id=provider_id)
 
-        qs = qs.only("id", "invoice_image_b64", "created_at", "invoice_date").order_by("-created_at")
+        qs = qs.only("id", "invoice_image", "created_at", "invoice_date").order_by("-created_at")
         data = [
             {
                 "id": r.id,
-                "invoice_image_b64": r.invoice_image_b64,
+                "invoice_image_url": request.build_absolute_uri(r.invoice_image.url) if r.invoice_image else None,
             }
             for r in qs
         ]
@@ -591,7 +592,7 @@ class ReceptionViewSet(viewsets.ViewSet):
 
         new_status = request.data.get("status")
         items = request.data.get("items", None)
-        inv_image = request.data.get("invoice_image_b64", None)
+        inv_image = request.FILES.get("invoice_image", None)
         inv_date = request.data.get("invoice_date", None)
         inv_time = request.data.get("invoice_time", None)
         inv_total = request.data.get("invoice_total", None)
@@ -610,8 +611,8 @@ class ReceptionViewSet(viewsets.ViewSet):
 
             # Handle invoice fields updates independently
             if inv_image is not None:
-                reception.invoice_image_b64 = inv_image or ""
-                update_fields.append("invoice_image_b64")
+                reception.invoice_image = inv_image
+                update_fields.append("invoice_image")
 
             if inv_date is not None:
                 if inv_date in ("", None):
@@ -726,3 +727,42 @@ class ReceptionViewSet(viewsets.ViewSet):
                     )
 
         return Response({"reception_id": reception.id, "status": reception.status})
+
+    @action(detail=True, methods=["post"], url_path="upload-invoice")
+    def upload_invoice(self, request, pk=None):
+        """POST: subir imagen de factura y datos opcionales."""
+        try:
+            reception = Reception.objects.select_related("market").get(id=pk)
+        except Reception.DoesNotExist:
+            return Response({"detail": "Reception not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        market = self._get_user_market(request.user)
+        if not market:
+            return Response(
+                {"detail": "No market found for current user (no login history)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if reception.market_id != market.id:
+            return Response({"detail": "Reception not available for user's market."}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = InvoiceImageUploadSerializer(data=request.data)
+        if serializer.is_valid():
+            # Actualizar la recepción con los datos de la factura
+            reception.invoice_image = serializer.validated_data['invoice_image']
+            
+            if 'invoice_date' in serializer.validated_data:
+                reception.invoice_date = serializer.validated_data['invoice_date']
+            
+            if 'invoice_time' in serializer.validated_data:
+                reception.invoice_time = serializer.validated_data['invoice_time']
+                
+            if 'invoice_total' in serializer.validated_data:
+                reception.invoice_total = serializer.validated_data['invoice_total']
+            
+            reception.save()
+            
+            # Devolver la recepción actualizada
+            response_serializer = ReceptionSerializer(reception, context={'request': request})
+            return Response(response_serializer.data, status=status.HTTP_200_OK)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
