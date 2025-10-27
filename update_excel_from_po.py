@@ -85,22 +85,40 @@ def update_excel_from_purchase_order(purchase_order_id, excel_file='miquel.xlsx'
     print(f"   Hoja activa: {ws.title}")
     print(f"   Filas: {ws.max_row}, Columnas: {ws.max_column}")
     
-    # 3. Encontrar la columna "Descripcion" (buscar en fila 1)
+    # 3. Encontrar la columna "Descripción" EXACTAMENTE (buscar en fila 2)
     descripcion_col = None
+    header_row = 2  # El encabezado está en la fila 2
+    data_start_row = 4  # Los datos empiezan en la fila 4
+    
     for col in range(1, ws.max_column + 1):
-        cell_value = ws.cell(1, col).value
-        if cell_value and 'descripcion' in str(cell_value).lower():
+        cell_value = ws.cell(header_row, col).value
+        if cell_value and str(cell_value).strip() == "Descripción":
             descripcion_col = col
             break
     
     if not descripcion_col:
-        print("\n❌ Error: No se encontró la columna 'Descripcion' en el Excel")
+        print("\n❌ Error: No se encontró la columna 'Descripción' (con tilde) en la fila 2")
+        print("\nColumnas encontradas en fila 2:")
+        for col in range(1, min(15, ws.max_column + 1)):
+            val = ws.cell(header_row, col).value
+            if val:
+                print(f"   Columna {chr(64+col)}: '{val}'")
         return False
     
-    print(f"\n🔍 Columna 'Descripcion' encontrada: Columna {descripcion_col} ({chr(64+descripcion_col)})")
+    print(f"\n🔍 Columna 'Descripción' encontrada: Columna {descripcion_col} ({chr(64+descripcion_col)})")
     print(f"   Columna J (destino): Columna 10")
+    print(f"   Fila de encabezados: {header_row}")
+    print(f"   Fila inicio de datos: {data_start_row}")
     
-    # 4. Comparar y actualizar
+    # 4. INICIALIZAR COLUMNA J EN 0 (desde fila de datos hasta el final)
+    print(f"\n🔄 Inicializando columna J en 0...")
+    initialized = 0
+    for row in range(data_start_row, ws.max_row + 1):
+        ws.cell(row, 10).value = 0  # Columna J = 10
+        initialized += 1
+    print(f"   ✓ {initialized} celdas inicializadas en 0")
+    
+    # 5. Comparar y actualizar
     print(f"\n{'='*70}")
     print("COMPARANDO Y ACTUALIZANDO...")
     print(f"{'='*70}\n")
@@ -109,7 +127,7 @@ def update_excel_from_purchase_order(purchase_order_id, excel_file='miquel.xlsx'
     not_found = []
     low_similarity = []
     
-    for row in range(2, ws.max_row + 1):  # Empezar desde fila 2 (después del header)
+    for row in range(data_start_row, ws.max_row + 1):  # Empezar desde fila 4 (datos)
         descripcion = ws.cell(row, descripcion_col).value
         
         if not descripcion:
@@ -152,7 +170,7 @@ def update_excel_from_purchase_order(purchase_order_id, excel_file='miquel.xlsx'
                 not_found.append({'row': row, 'descripcion': descripcion})
                 print(f"✗ Fila {row}: '{descripcion}' (no encontrado)")
     
-    # 5. Guardar el archivo
+    # 6. Guardar el archivo
     output_path = output_file or excel_file
     try:
         wb.save(output_path)
@@ -163,7 +181,7 @@ def update_excel_from_purchase_order(purchase_order_id, excel_file='miquel.xlsx'
         print(f"\n❌ Error al guardar archivo: {e}")
         return False
     
-    # 6. Resumen
+    # 7. Resumen
     print(f"\n📊 RESUMEN:")
     print(f"   ✓ Actualizados: {updated} productos")
     print(f"   ⚠ Similitud baja: {len(low_similarity)} productos")
