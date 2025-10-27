@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """
 Script para actualizar el archivo Excel con datos de PurchaseOrderItem.
 

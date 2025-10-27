@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """
 Script para enviar archivos Excel por correo electrónico.
 """
@@ -105,8 +106,8 @@ TockControl
         
         print(f"\n🔄 Conectando a {SMTP_CONFIG['host']}:{SMTP_CONFIG['port']}...")
         
-        # Conectar y enviar
-        with smtplib.SMTP(SMTP_CONFIG['host'], SMTP_CONFIG['port']) as server:
+        # Conectar y enviar (con timeout de 30 segundos)
+        with smtplib.SMTP(SMTP_CONFIG['host'], SMTP_CONFIG['port'], timeout=30) as server:
             if SMTP_CONFIG['use_tls']:
                 server.starttls()
                 print("   ✓ Conexión TLS establecida")
@@ -128,11 +129,21 @@ TockControl
         print("\n❌ Error: Fallo en la autenticación SMTP")
         print("   Verifica el usuario y contraseña")
         return False
+    except smtplib.SMTPConnectError as e:
+        print(f"\n❌ Error: No se pudo conectar al servidor SMTP")
+        print(f"   Detalles: {e}")
+        return False
+    except TimeoutError:
+        print("\n❌ Error: Timeout al conectar al servidor SMTP")
+        print("   Verifica tu conexión a internet o firewall")
+        return False
     except smtplib.SMTPException as e:
         print(f"\n❌ Error SMTP: {e}")
         return False
     except Exception as e:
         print(f"\n❌ Error inesperado: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
