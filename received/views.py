@@ -1,5 +1,6 @@
 """Views for receiving products and barcode search within purchase orders."""
 
+import logging
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -420,6 +421,7 @@ class ReceptionViewSet(viewsets.ViewSet):
     """Gestiona recepciones: detalle y edición (status e items)."""
 
     permission_classes = [permissions.IsAuthenticated]
+    logger = logging.getLogger(__name__)
 
     def _get_user_market(self, user):
         last = (
@@ -731,38 +733,87 @@ class ReceptionViewSet(viewsets.ViewSet):
     @action(detail=True, methods=["post"], url_path="upload-invoice")
     def upload_invoice(self, request, pk=None):
         """POST: subir imagen de factura y datos opcionales."""
+        self.logger.info("="*70)
+        self.logger.info(f"UPLOAD INVOICE - Reception ID: {pk}")
+        self.logger.info("="*70)
+        
+        # Log del usuario
+        self.logger.info(f"Usuario: {request.user.username} (ID: {request.user.id})")
+        self.logger.info(f"Usuario autenticado: {request.user.is_authenticated}")
+        
+        # Log de request.data completo
+        self.logger.info(f"\nRequest.data keys: {list(request.data.keys())}")
+        self.logger.info(f"Request.data: {request.data}")
+        
+        # Log de request.FILES
+        self.logger.info(f"\nRequest.FILES keys: {list(request.FILES.keys())}")
+        for key, file in request.FILES.items():
+            self.logger.info(f"  File '{key}': {file.name} (size: {file.size} bytes, content_type: {file.content_type})")
+        
+        # Log de headers importantes
+        self.logger.info(f"\nContent-Type: {request.META.get('CONTENT_TYPE', 'N/A')}")
+        self.logger.info(f"Content-Length: {request.META.get('CONTENT_LENGTH', 'N/A')}")
+        
         try:
             reception = Reception.objects.select_related("market").get(id=pk)
+            self.logger.info(f"\nRecepción encontrada: ID={reception.id}, Market={reception.market.name if reception.market else 'None'}")
         except Reception.DoesNotExist:
+            self.logger.error(f"Reception ID {pk} not found")
             return Response({"detail": "Reception not found."}, status=status.HTTP_404_NOT_FOUND)
 
         market = self._get_user_market(request.user)
         if not market:
+            self.logger.error("No market found for current user")
             return Response(
                 {"detail": "No market found for current user (no login history)."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        
+        self.logger.info(f"Market del usuario: {market.name} (ID: {market.id})")
+        
         if reception.market_id != market.id:
+            self.logger.error(f"Market mismatch: reception.market_id={reception.market_id}, user.market_id={market.id}")
             return Response({"detail": "Reception not available for user's market."}, status=status.HTTP_403_FORBIDDEN)
 
+        self.logger.info("\n--- Validando serializer ---")
         serializer = InvoiceImageUploadSerializer(data=request.data)
+        
         if serializer.is_valid():
+            self.logger.info("Serializer válido")
+            self.logger.info(f"Validated data keys: {list(serializer.validated_data.keys())}")
+            
             # Actualizar la recepción con los datos de la factura
-            reception.invoice_image = serializer.validated_data['invoice_image']
+            if 'invoice_image' in serializer.validated_data:
+                invoice_image = serializer.validated_data['invoice_image']
+                self.logger.info(f"Actualizando invoice_image: {invoice_image.name} ({invoice_image.size} bytes)")
+                reception.invoice_image = invoice_image
             
             if 'invoice_date' in serializer.validated_data:
-                reception.invoice_date = serializer.validated_data['invoice_date']
+                invoice_date = serializer.validated_data['invoice_date']
+                self.logger.info(f"Actualizando invoice_date: {invoice_date}")
+                reception.invoice_date = invoice_date
             
             if 'invoice_time' in serializer.validated_data:
-                reception.invoice_time = serializer.validated_data['invoice_time']
+                invoice_time = serializer.validated_data['invoice_time']
+                self.logger.info(f"Actualizando invoice_time: {invoice_time}")
+                reception.invoice_time = invoice_time
                 
             if 'invoice_total' in serializer.validated_data:
-                reception.invoice_total = serializer.validated_data['invoice_total']
+                invoice_total = serializer.validated_data['invoice_total']
+                self.logger.info(f"Actualizando invoice_total: {invoice_total}")
+                reception.invoice_total = invoice_total
             
+            self.logger.info("\nGuardando recepción...")
             reception.save()
+            self.logger.info(f"✓ Recepción guardada exitosamente (ID: {reception.id})")
             
             # Devolver la recepción actualizada
             response_serializer = ReceptionSerializer(reception, context={'request': request})
+            self.logger.info(f"\nRespuesta generada con status 200 OK")
+            self.logger.info("="*70)
             return Response(response_serializer.data, status=status.HTTP_200_OK)
-        
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            self.logger.error("\nSerializer inválido")
+            self.logger.error(f"Errores de validación: {serializer.errors}")
+            self.logger.info("="*70)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
