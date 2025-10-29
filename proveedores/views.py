@@ -105,6 +105,7 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
         # Filtrar por código de barras exacto si se provee
         request = getattr(self, 'request', None)
         if request is not None:
+
             code = request.query_params.get("barcode")
             if code:
                 qs = qs.filter(barcodes__code=code)
@@ -112,6 +113,9 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
             name_q = request.query_params.get("name") or request.query_params.get("q")
             if name_q:
                 qs = qs.filter(name__icontains=name_q)
+            starts_with = request.query_params.get('starts_with', None)
+            if starts_with:
+                qs = qs.filter(name__istartswith=starts_with)
 
             # Filtro por proveedor: acepta 'provider' o 'provider_id'
             provider_q = request.query_params.get("provider") or request.query_params.get("provider_id")
