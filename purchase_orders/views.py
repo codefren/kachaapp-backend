@@ -16,7 +16,7 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     """ViewSet for purchase orders with custom actions."""
     
     queryset = PurchaseOrder.objects.select_related("provider", "ordered_by", "market").prefetch_related(
-        Prefetch("items", queryset=PurchaseOrderItem.objects.select_related("product"))
+        Prefetch("items", queryset=PurchaseOrderItem.objects.select_related("product").order_by("created_at"))
     )
     serializer_class = PurchaseOrderSerializer
     permission_classes = [permissions.IsAuthenticated]
