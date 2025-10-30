@@ -95,6 +95,7 @@ LOCAL_APPS = [
     "proveedores",
     "purchase_orders.apps.PurchaseOrdersConfig",
     "received",
+    "invoice_parser",
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -385,3 +386,6 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB (default is 2.5MB)
 
 # Your stuff...
 # ------------------------------------------------------------------------------
+# OpenAI
+# ------------------------------------------------------------------------------
+OPENAI_API_KEY = env("OPENAI_API_KEY", default="")

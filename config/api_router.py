@@ -6,6 +6,7 @@ from kachadigitalbcn.users.api.views import UserViewSet
 from market.refrigerator_views import RefrigeratorViewSet, TemperatureRecordViewSet
 from purchase_orders.views import PurchaseOrderViewSet, PurchaseOrderItemViewSet
 from received.views import SearchReceivedProductViewSet, ReceptionViewSet
+from invoice_parser.views import InvoiceParserViewSet
 
 router = DefaultRouter() if settings.DEBUG else SimpleRouter()
 
@@ -16,6 +17,7 @@ router.register("purchase-orders", PurchaseOrderViewSet, basename="purchaseorder
 router.register("purchase-order-items", PurchaseOrderItemViewSet, basename="purchaseorderitem")
 router.register("received-products", SearchReceivedProductViewSet, basename="receivedproduct")
 router.register("receptions", ReceptionViewSet, basename="reception")
+router.register("invoice-parser", InvoiceParserViewSet, basename="invoiceparser")
 
 
 app_name = "api"
