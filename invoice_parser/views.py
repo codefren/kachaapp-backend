@@ -119,25 +119,18 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                         purpose="assistants",
                     )
                 else:
-                    # Caso 3: Fallback seguro -> bytes/BytesIO o tuple
+                    # Caso 3: Fallback seguro -> tupla (filename, bytes, content_type)
+                    # Usar tupla es más explícito y garantiza que OpenAI detecte la extensión
                     uploaded_file.seek(0)
                     data = uploaded_file.read()     # bytes
-                    # a) Como BytesIO (IOBase)
-                    bio = BytesIO(data)
-                    # algunos SDKs leen .name para inferir el filename
-                    try:
-                        bio.name = uploaded_file.name
-                    except Exception:
-                        pass
+                    # Asegurar que el filename tenga extensión .pdf
+                    filename = uploaded_file.name
+                    if not filename.lower().endswith('.pdf'):
+                        filename = f"{filename}.pdf"
                     openai_file = client.files.create(
-                        file=bio,                   # IOBase
+                        file=(filename, data, uploaded_file.content_type or "application/pdf"),
                         purpose="assistants",
                     )
-                    # Alternativa equivalente: tupla (filename, bytes, content_type)
-                    # openai_file = client.files.create(
-                    #     file=(uploaded_file.name, data, uploaded_file.content_type or "application/pdf"),
-                    #     purpose="assistants",
-                    # )
             except Exception as upload_error:
                 logger.error(f"Error uploading file to OpenAI: {upload_error}")
                 raise Exception(f"Error al subir archivo a OpenAI: {upload_error}")
