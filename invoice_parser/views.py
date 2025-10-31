@@ -132,21 +132,26 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 assistant = client.beta.assistants.create(
                     name="Invoice Parser",
                     instructions=(
-                        "Tu ÚNICA tarea es devolver un CSV válido. NO escribas explicaciones, NO escribas código, SOLO devuelve el CSV.\n\n"
-                        "FORMATO REQUERIDO (CSV con estos encabezados exactos):\n"
-                        "codigo,cajas,uc,iva,articulo,udes,unidad,precio,precio_iva,importe,contenedor\n\n"
+                        "Eres un extractor de facturas especializado. Tu ÚNICA tarea es devolver CSV válido.\n\n"
+                        "IMPORTANTE - EXTRAE TODAS LAS LÍNEAS:\n"
+                        "- Lee el PDF COMPLETAMENTE desde la primera hasta la última línea de producto\n"
+                        "- NO omitas ninguna línea, incluso si hay muchas\n"
+                        "- NO te detengas hasta haber procesado todo el documento\n"
+                        "- Si hay 50 líneas, extrae las 50. Si hay 100, extrae las 100\n\n"
+                        "FORMATO REQUERIDO:\n"
+                        "codigo,cajas,uc,articulo,udes,unidad,contenedor\n\n"
                         "REGLAS ESTRICTAS:\n"
-                        "1. Primera línea DEBE ser: codigo,cajas,uc,iva,articulo,udes,unidad,precio,precio_iva,importe,contenedor\n"
-                        "2. Cada línea posterior es un producto de la factura\n"
-                        "3. Usa punto (.) como separador decimal, NUNCA coma\n"
-                        "4. NO incluyas texto antes o después del CSV\n"
-                        "5. NO uses bloques de código markdown\n"
-                        "6. Extrae TODAS las líneas de productos\n\n"
-                        "EJEMPLO DE SALIDA CORRECTA:\n"
-                        "codigo,cajas,uc,iva,articulo,udes,unidad,precio,precio_iva,importe,contenedor\n"
-                        "ABC123,10,5,10,Manzanas,50,kg,1.50,1.65,82.50,CONT001\n"
-                        "DEF456,5,2,10,Naranjas,10,kg,2.00,2.20,22.00,CONT001\n\n"
-                        "Devuelve SOLO el CSV, sin más texto."
+                        "1. Primera línea DEBE ser: codigo,cajas,uc,articulo,udes,unidad,contenedor\n"
+                        "2. Cada línea siguiente es un producto\n"
+                        "3. Punto (.) para decimales, NUNCA coma\n"
+                        "4. NO incluyas texto explicativo, SOLO CSV\n"
+                        "5. NO uses markdown ni bloques de código\n"
+                        "6. Si un campo está vacío, déjalo vacío (no pongas 'N/A')\n"
+                        "7. Procesa TODO el documento sin truncar\n\n"
+                        "EJEMPLO:\n"
+                        "codigo,cajas,uc,articulo,udes,unidad,contenedor\n"
+                        "ABC123,10,5,Manzanas,50,kg,CONT001\n"
+                        "DEF456,5,2,Naranjas,10,kg,CONT001"
                     ),
                     model="gpt-4o",
                     tools=[{"type": "code_interpreter"}]
@@ -158,8 +163,10 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                         {
                             "role": "user",
                             "content": (
-                                "Analiza este PDF y devuelve SOLO el CSV con las líneas de productos. "
-                                "No escribas explicaciones ni código, solo devuelve el CSV directamente."
+                                "Extrae TODAS las líneas de productos de este PDF de factura y devuelve SOLO el CSV. "
+                                "IMPORTANTE: No omitas ninguna línea, procesa el documento completo hasta el final. "
+                                "Cuenta cuántas líneas hay y extráelas todas. "
+                                "NO escribas explicaciones, NO escribas código Python, devuelve ÚNICAMENTE el CSV."
                             ),
                             "attachments": [
                                 {
@@ -241,7 +248,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 
                 # 9) Buscar el CSV real si hay texto explicativo
                 # El CSV debe empezar con el header esperado
-                expected_header = "codigo,cajas,uc,iva,articulo,udes,unidad,precio,precio_iva,importe,contenedor"
+                expected_header = "codigo,cajas,uc,articulo,udes,unidad,contenedor"
                 if not csv_data.startswith(expected_header) and expected_header in csv_data:
                     # Extraer desde el header hasta el final
                     start_idx = csv_data.index(expected_header)
@@ -282,22 +289,30 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR
                     )
                 
-                # 4) Guardar CSV y parsear líneas
+                # 4) Validar que el CSV no esté truncado
+                csv_line_count = len([line for line in csv_data.split("\n") if line.strip()]) - 1  # -1 por el header
+                logger.info(f"CSV extracted with {csv_line_count} product lines")
+                
+                # Detectar posibles truncamientos
+                if csv_data.endswith("...") or "truncated" in csv_data.lower():
+                    logger.warning("CSV appears to be truncated!")
+                
+                # 5) Guardar CSV y parsear líneas
                 logger.info(f"Final CSV data to save:\n{csv_data}")
                 invoice_parse.csv_data = csv_data
                 invoice_parse.save(update_fields=["csv_data"])
                 
-                # 5) Parsear CSV y crear líneas
+                # 6) Parsear CSV y crear líneas
                 self._parse_and_save_lines(csv_data, invoice_parse)
                 
-                # 6) Marcar como completado
+                # 7) Marcar como completado
                 invoice_parse.status = InvoiceParse.Status.COMPLETED
                 invoice_parse.completed_at = timezone.now()
                 invoice_parse.save(update_fields=["status", "completed_at"])
                 
                 logger.info(f"Invoice parse completed: {invoice_parse.id} with {invoice_parse.line_count} lines")
                 
-                # 7) Devolver el CSV
+                # 8) Devolver el CSV
                 from django.http import HttpResponse
                 response = HttpResponse(csv_data, content_type="text/csv; charset=utf-8")
                 response["Content-Disposition"] = 'attachment; filename="factura_parseada.csv"'
@@ -358,13 +373,9 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                     codigo=row.get("codigo", "")[:50],
                     cajas=safe_decimal(row.get("cajas")),
                     uc=safe_decimal(row.get("uc")),
-                    iva=safe_decimal(row.get("iva")),
                     articulo=row.get("articulo", "")[:255],
                     udes=safe_decimal(row.get("udes")),
                     unidad=row.get("unidad", "")[:20],
-                    precio=safe_decimal(row.get("precio")),
-                    precio_iva=safe_decimal(row.get("precio_iva")),
-                    importe=safe_decimal(row.get("importe")),
                     contenedor=row.get("contenedor", "")[:100],
                     raw_data=row
                 )
