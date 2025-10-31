@@ -221,7 +221,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 )
                 
                 # 5) Esperar a que termine (con timeout)
-                timeout = 180  # 180 segundos (3 minutos para PDFs grandes)
+                timeout = 300  # 300 segundos (5 minutos para PDFs grandes)
                 start_time = time.time()
                 
                 while run.status in ["queued", "in_progress"]:
