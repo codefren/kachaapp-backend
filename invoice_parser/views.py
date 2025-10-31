@@ -147,10 +147,12 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
             invoice_parse.save(update_fields=["openai_file_id"])
             
             # 2) Crear Assistant con instrucciones estrictas
+            # Importante: habilitar la tool file_search para que el assistant pueda leer archivos adjuntos
             assistant = client.beta.assistants.create(
                 name="Invoice Parser — JSON estricto",
                 model="gpt-4o",
                 instructions=self._get_parsing_instructions(expected_lines),
+                tools=[{"type": "file_search"}],   # <-- clave
             )
             
             # 3) Crear thread NUEVO con el PDF adjunto (CRÍTICO: thread limpio)
@@ -162,7 +164,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                         "attachments": [
                             {
                                 "file_id": openai_file.id,
-                                "tools": []  # Sin herramientas
+                                "tools": [{"type": "file_search"}]  # Requerido por OpenAI
                             }
                         ],
                     }
