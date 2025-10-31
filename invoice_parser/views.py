@@ -132,16 +132,21 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 assistant = client.beta.assistants.create(
                     name="Invoice Parser",
                     instructions=(
-                        "Eres un extractor de líneas de factura. "
-                        "Analiza el PDF de factura y devuelve SOLO un CSV válido con estos encabezados: "
+                        "Tu ÚNICA tarea es devolver un CSV válido. NO escribas explicaciones, NO escribas código, SOLO devuelve el CSV.\n\n"
+                        "FORMATO REQUERIDO (CSV con estos encabezados exactos):\n"
                         "codigo,cajas,uc,iva,articulo,udes,unidad,precio,precio_iva,importe,contenedor\n\n"
-                        "Instrucciones:\n"
-                        "- Extrae TODAS las líneas de productos de la factura\n"
-                        "- Si hay varios 'Contenedor:', incluye la columna 'contenedor' para cada línea\n"
-                        "- Usa punto (.) como separador decimal, no coma\n"
-                        "- No incluyas texto adicional, solo el CSV\n"
-                        "- Primera línea debe ser el encabezado\n"
-                        "- Cada línea posterior es un producto"
+                        "REGLAS ESTRICTAS:\n"
+                        "1. Primera línea DEBE ser: codigo,cajas,uc,iva,articulo,udes,unidad,precio,precio_iva,importe,contenedor\n"
+                        "2. Cada línea posterior es un producto de la factura\n"
+                        "3. Usa punto (.) como separador decimal, NUNCA coma\n"
+                        "4. NO incluyas texto antes o después del CSV\n"
+                        "5. NO uses bloques de código markdown\n"
+                        "6. Extrae TODAS las líneas de productos\n\n"
+                        "EJEMPLO DE SALIDA CORRECTA:\n"
+                        "codigo,cajas,uc,iva,articulo,udes,unidad,precio,precio_iva,importe,contenedor\n"
+                        "ABC123,10,5,10,Manzanas,50,kg,1.50,1.65,82.50,CONT001\n"
+                        "DEF456,5,2,10,Naranjas,10,kg,2.00,2.20,22.00,CONT001\n\n"
+                        "Devuelve SOLO el CSV, sin más texto."
                     ),
                     model="gpt-4o",
                     tools=[{"type": "code_interpreter"}]
@@ -152,7 +157,10 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                     messages=[
                         {
                             "role": "user",
-                            "content": "Extrae las líneas de esta factura como CSV.",
+                            "content": (
+                                "Analiza este PDF y devuelve SOLO el CSV con las líneas de productos. "
+                                "No escribas explicaciones ni código, solo devuelve el CSV directamente."
+                            ),
                             "attachments": [
                                 {
                                     "file_id": file.id,
@@ -217,7 +225,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 except Exception as e:
                     logger.warning(f"Could not delete assistant: {e}")
                 
-                # 8) Limpiar el CSV si viene con marcadores de código
+                # 8) Limpiar el CSV si viene con marcadores de código o texto explicativo
                 if csv_data.startswith("```"):
                     # Remover bloques de código markdown
                     lines = csv_data.split("\n")
@@ -230,6 +238,34 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                         if not in_code_block:
                             csv_lines.append(line)
                     csv_data = "\n".join(csv_lines).strip()
+                
+                # 9) Buscar el CSV real si hay texto explicativo
+                # El CSV debe empezar con el header esperado
+                expected_header = "codigo,cajas,uc,iva,articulo,udes,unidad,precio,precio_iva,importe,contenedor"
+                if not csv_data.startswith(expected_header) and expected_header in csv_data:
+                    # Extraer desde el header hasta el final
+                    start_idx = csv_data.index(expected_header)
+                    csv_data = csv_data[start_idx:].strip()
+                    logger.info("Extracted CSV from text with explanations")
+                elif not csv_data.startswith(expected_header):
+                    # Si no encontramos el header, buscar cualquier línea que parezca CSV
+                    lines = csv_data.split("\n")
+                    csv_lines = []
+                    found_csv = False
+                    for line in lines:
+                        # Una línea CSV tiene comas y no es texto largo sin estructura
+                        if "," in line and len(line.split(",")) >= 5:
+                            found_csv = True
+                            csv_lines.append(line)
+                        elif found_csv and line.strip() == "":
+                            # Línea vacía después del CSV, terminar
+                            break
+                        elif found_csv:
+                            csv_lines.append(line)
+                    
+                    if csv_lines:
+                        csv_data = "\n".join(csv_lines).strip()
+                        logger.info(f"Extracted {len(csv_lines)} CSV lines from mixed content")
                 
                 if not csv_data:
                     error_detail = f"Could not extract CSV from OpenAI response. Messages count: {len(messages.data)}"
