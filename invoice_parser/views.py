@@ -170,7 +170,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 )
                 
                 # 5) Esperar a que termine (con timeout)
-                timeout = 60  # 60 segundos
+                timeout = 180  # 180 segundos (3 minutos)
                 start_time = time.time()
                 
                 while run.status in ["queued", "in_progress"]:
