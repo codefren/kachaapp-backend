@@ -162,6 +162,8 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
             json_schema = self._get_json_schema(expected_lines)
             
             # 5) Ejecutar run con validación estricta
+            # IMPORTANTE: NO usar tool_choice="none" porque necesitamos que use file_search para leer el PDF
+            # El response_format con json_schema garantiza que la respuesta sea JSON estructurado
             run = client.beta.threads.runs.create(
                 thread_id=thread.id,
                 assistant_id=assistant.id,
@@ -173,7 +175,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                         "strict": True
                     }
                 },
-                tool_choice="none",  # NO usar herramientas
+                # tool_choice="auto" es el default - permite usar file_search cuando sea necesario
                 max_completion_tokens=16000,  # Límite de tokens en la respuesta
                 metadata={
                     "invoice_parse_id": str(invoice_parse.id),
@@ -344,7 +346,7 @@ SALIDA JSON (BLOQUEANTE):
 - Prohibido comillas dobles sin escapar dentro de strings (escapa \" o usa comilla simple).
 
 ALCANCE (PDF ESPECÍFICO):
-- Documento: FACTURA Nº 0098727880 (ref. FR00987278805).
+- Documento: FACTURA.
 - Páginas: **4** (procésalas TODAS, de la primera a la última).
 - Encabezado repetido por página: "Código Cajas U/C IVA PVP rec. Ofe Artículo Udes./Kg Precio Precio+IVA Importe".
 - Existen bloques "Contenedor: <id>" que agrupan filas hasta el siguiente "Contenedor:".
