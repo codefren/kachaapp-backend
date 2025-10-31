@@ -247,6 +247,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                     )
                 
                 # 4) Guardar CSV y parsear líneas
+                logger.info(f"Final CSV data to save:\n{csv_data}")
                 invoice_parse.csv_data = csv_data
                 invoice_parse.save(update_fields=["csv_data"])
                 
@@ -292,6 +293,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
             invoice_parse: Instancia de InvoiceParse
         """
         try:
+            logger.info(f"Starting to parse CSV for invoice {invoice_parse.id}")
             # Leer CSV
             csv_file = io.StringIO(csv_data)
             reader = csv.DictReader(csv_file)
@@ -299,7 +301,10 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
             lines_to_create = []
             line_number = 1
             
+            logger.info(f"CSV headers: {reader.fieldnames}")
+            
             for row in reader:
+                logger.info(f"Processing row {line_number}: {row}")
                 # Convertir valores numéricos con manejo de errores
                 def safe_decimal(value):
                     if not value or value.strip() == "":
@@ -334,6 +339,8 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
             if lines_to_create:
                 InvoiceLineItem.objects.bulk_create(lines_to_create)
                 logger.info(f"Created {len(lines_to_create)} invoice lines for parse {invoice_parse.id}")
+            else:
+                logger.warning(f"No lines were created from CSV for invoice {invoice_parse.id}")
         
         except Exception as e:
             logger.exception(f"Error parsing CSV lines: {str(e)}")
