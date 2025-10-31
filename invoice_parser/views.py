@@ -131,66 +131,64 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 
                 # 2) Crear un Assistant para extraer los datos en JSON
                 assistant = client.beta.assistants.create(
-                    name="Invoice Parser",
+                    name="Invoice Parser — FACTURA",
                     instructions=(
                         "TAREA CRÍTICA (BLOQUEANTE):\n"
-                        "Debes extraer TODAS las líneas de productos del PDF, sin omitir ninguna, recorriendo las 3 páginas completas.\n\n"
+                        "Debes extraer TODAS las líneas de productos de la factura (PDF de 4 páginas) y devolverlas en un JSON. No omitas ninguna línea ni limites el conteo.\n\n"
                         
-                        "REGLAS DE LECTURA (OBLIGATORIAS):\n"
-                        "1) Lee el PDF COMPLETAMENTE desde la primera hasta la última página (el documento tiene 3 páginas).\n"
-                        "2) Identifica TODAS las líneas de productos. Pueden ser 5, 50, 100 o más.\n"
-                        "3) Considera que las líneas pueden:\n"
-                        "   - Estar en tablas con columnas (código, cajas, UC, artículo, UDES, unidad, contenedor).\n"
-                        "   - Romperse en varias líneas (descripción/artículo multilínea, 'continúa en página siguiente').\n"
-                        "   - Tener encabezados/repeticiones por página.\n"
-                        "4) Une correctamente líneas partidas (wrap) y las que declaran 'continúa en página siguiente'. No dupliques ni pierdas filas.\n"
-                        "5) Ignora por completo filas de totales, subtotales, impuestos, notas, disclaimers, cabeceras, pies de página y números de página.\n"
-                        "   Palabras clave a ignorar: TOTAL, SUBTOTAL, IVA, TAX, IMPUESTO, BASE, DESCUENTO, ENVÍO, TRANSPORTE, FREIGHT, SUMA, PÁGINA, PAGE, OBSERVACIONES, NOTAS.\n"
-                        "6) Si un campo no está presente o no se puede derivar sin ambigüedad, usa null (NO inventes).\n\n"
+                        "ESTRUCTURA ESPECÍFICA DE ESTE PDF:\n"
+                        "- Encabezado de la tabla (se repite por página): 'Código Cajas U/C IVA PVP rec. Ofe Artículo Udes./Kg Precio Precio+IVA Importe'.\n"
+                        "- Los productos aparecen bajo ese encabezado.\n"
+                        "- Hay bloques que empiezan con 'Contenedor:    <id_numérico>' y luego varias líneas de productos pertenecen a ese contenedor hasta que aparezca un nuevo 'Contenedor:'.\n"
+                        "- También hay secciones NO productivas: 'FALTAS EN EL SERVICIO', 'Subtotal', 'IVA BASES', 'SUMAS', 'Total Factura', etc. Debes ignorarlas por completo.\n\n"
                         
-                        "CAMPOS REQUERIDOS POR LÍNEA:\n"
-                        "- codigo: string (exactamente como aparece; quitar espacios sobrantes)\n"
-                        "- cajas: number o null (si aparece como entero/decimal; si viene como texto no numérico => null)\n"
-                        "- uc: number o null (unidades por caja; si no está claro => null)\n"
-                        "- articulo: string (descripción limpia, uniendo continuaciones y eliminando saltos de línea internos)\n"
-                        "- udes: number o null (cantidad total de unidades; si no está claro => null)\n"
-                        "- unidad: string (por ejemplo: UN, UD, UDS, KG, L, ML; normaliza a mayúsculas; si no hay => null)\n"
-                        "- contenedor: string (identificador del contenedor, pallet o referencia logística si aparece; si no => null)\n\n"
+                        "PÁGINAS A PROCESAR:\n"
+                        "- El documento tiene 4 páginas. Lee y procesa **todas**, uniendo tablas que continúan en la siguiente página y eliminando cabeceras repetidas.\n\n"
                         
-                        "NORMALIZACIÓN Y PARSING:\n"
-                        "- Elimina separadores de miles ('.' o ',') y respeta el separador decimal local (convierte a punto para número).\n"
-                        "- Permite números con coma o punto decimal (p. ej., '1,00' => 1.0).\n"
-                        "- Recorta espacios al inicio/fin en todos los strings.\n"
-                        "- Para 'unidad', mapea variantes comunes (U, UN, UD, UDS => 'UN'; KGS => 'KG'; LTS => 'L').\n"
-                        "- Si 'udes' falta pero están presentes 'cajas' y 'uc' y la factura suele implicar udes = cajas * uc, NO calcules: deja udes en null (no asumas).\n\n"
+                        "¿QUÉ ES UNA LÍNEA DE PRODUCTO AQUÍ?\n"
+                        "- Patrón típico por línea (campos de la factura, algunos no los extraerás):\n"
+                        "  Código | Cajas | U/C | IVA | PVP | rec. | Ofe | Artículo | Udes./Kg | Precio | Precio+IVA | Importe\n"
+                        "- Ejemplo real (solo ilustrativo):\n"
+                        "  5921 1 6 21% 0,96 AGUA MICAL DESTILADA 2L 6 UN 0,67 0,81 4,02\n"
+                        "- Observa que 'Artículo' puede contener espacios, abreviaturas y números dentro de la descripción.\n\n"
                         
-                        "DETECCIÓN DE FILAS:\n"
-                        "- Prioriza estructuras tabulares (líneas con varias columnas alineadas).\n"
-                        "- Si hay columnas visibles, reconoce su posición por consistencia de alineación.\n"
-                        "- Si 'contenedor' aparece en bloques aparte o encabezando un grupo, propágalo a las filas siguientes hasta que cambie o termine el grupo.\n\n"
+                        "CAMPOS QUE DEBES DEVOLVER POR CADA LÍNEA:\n"
+                        "- codigo: string (valor exacto del campo 'Código', sin espacios extras)\n"
+                        "- cajas: number o null (desde 'Cajas')\n"
+                        "- uc: number o null (desde 'U/C')\n"
+                        "- articulo: string (desde 'Artículo'; si se parte en varias líneas, únelas correctamente)\n"
+                        "- udes: number o null (desde 'Udes./Kg', solo el número; NO copies 'UN' ni 'KG')\n"
+                        "- unidad: string o null (normaliza a mayúsculas; ejemplos: UN, KG, L; si no hay, null)\n"
+                        "- contenedor: string o null (último 'Contenedor: <id>' visto antes de la línea; propágalo a todas las filas hasta que cambie)\n\n"
+                        
+                        "REGLAS DE PARSING Y NORMALIZACIÓN:\n"
+                        "- Une descripciones partidas (wrap) del campo 'Artículo' hasta encontrar el bloque 'Udes./Kg' y su unidad ('UN', 'KG', 'L', etc.).\n"
+                        "- Los precios/IVA/PVP/rec./Ofe **NO** se devuelven; solo usa esos tokens como anclas para ubicar columnas. Ignora cualquier símbolo como '+' en precios (p. ej., '0,65 + 0,79').\n"
+                        "- Quita separadores de miles y convierte comas decimales a punto si necesitas interpretar números, pero **solo** para cajas, uc, udes (los demás precios no se devuelven).\n"
+                        "- Normaliza unidades frecuentes: U, UD, UDS → 'UN'; KGS → 'KG'; LTS → 'L'. Si no identificable, deja unidad en null.\n"
+                        "- Si un campo no está presente o es ambiguo, usa null (no inventes).\n"
+                        "- Deduplica cabeceras repetidas por página y descarta líneas que no sean productos (totales, observaciones, páginas, teléfonos, direcciones, etc.).\n"
+                        "- Descarta por completo la sección 'FALTAS EN EL SERVICIO' y cualquier línea debajo de ese bloque que no siga el patrón de producto.\n\n"
+                        
+                        "DETECCIÓN DE CONTENEDOR:\n"
+                        "- Cada vez que aparezca 'Contenedor:    <id>' guarda ese <id> y asígnalo a todas las líneas de producto siguientes hasta que surja un nuevo 'Contenedor:' o termine la tabla/página.\n"
+                        "- Si alguna línea de producto aparece antes del primer contenedor visible en la página, deja contenedor en null para esa(s) línea(s).\n\n"
                         
                         "CONTROL DE CALIDAD (ANTES DE RESPONDER):\n"
-                        "- El conteo de filas debe ser >= al de todas las líneas de productos detectadas en las 3 páginas (no te detengas tras las primeras).\n"
-                        "- Elimina duplicados causados por cabeceras repetidas o reimpresiones de tabla.\n"
-                        "- Verifica que 'articulo' NO sea una palabra de totales ni un encabezado.\n"
-                        "- Asegura tipos correctos: numeros como number, ausentes como null, strings en UTF-8 limpio.\n"
-                        "- Si una fila tiene solo 'articulo' pero carece de todo lo demás y no forma parte de una continuación válida, descártala.\n\n"
+                        "- Asegura que el número de líneas extraídas corresponde a todas las filas de la tabla a lo largo de las 4 páginas (no te detengas tras las primeras).\n"
+                        "- Verifica tipos: numeros como number; ausentes como null; strings en UTF-8; unidad en mayúsculas o null.\n"
+                        "- Elimina duplicados por cambio de página o por reimpresión de cabeceras.\n"
+                        "- articulo no debe ser una palabra de totales ni títulos de sección.\n\n"
                         
                         "FORMATO DE RESPUESTA (ESTRICTO):\n"
-                        "- Responde **únicamente** con JSON puro, sin explicaciones, sin comentarios, sin texto adicional.\n"
+                        "- Responde **únicamente** con JSON puro (sin comentarios ni texto extra).\n"
                         "- Estructura final: {\"productos\": [ ... ]}\n\n"
                         
-                        "EJEMPLO (ilustrativo; TÚ debes extraer TODOS los productos reales del PDF):\n"
+                        "EJEMPLO DE RESPUESTA (solo formato; NO son los datos reales del PDF):\n"
                         '{"productos": ['
-                        '{"codigo": "5921", "cajas": 1, "uc": 6, "articulo": "AGUA MICAL", "udes": 6, "unidad": "UN", "contenedor": "CONT-001"}, '
-                        '{"codigo": "6345", "cajas": 1, "uc": 3, "articulo": "LEJIA MICAL", "udes": 3, "unidad": "UN", "contenedor": "CONT-001"}, '
-                        '{"codigo": "7120", "cajas": 1, "uc": 12, "articulo": "QUITAMANCHAS", "udes": 12, "unidad": "UN", "contenedor": "CONT-001"}'
-                        ']}\n\n'
-                        
-                        "RECORDATORIOS FINALES:\n"
-                        "- El PDF tiene 3 páginas: procesa TODAS.\n"
-                        "- NO limites el número de filas.\n"
-                        "- NO incluyas nada que no sea el JSON con 'productos'."
+                        '{"codigo": "5921", "cajas": 1, "uc": 6, "articulo": "AGUA MICAL DESTILADA 2L", "udes": 6, "unidad": "UN", "contenedor": "284130801096506780"}, '
+                        '{"codigo": "30047", "cajas": 20, "uc": 6, "articulo": "AGUA BEZOYA 1,5L", "udes": 120, "unidad": "UN", "contenedor": "284130801096514969"}'
+                        ']}'
                     ),
                     model="gpt-4o",
                     tools=[{"type": "code_interpreter"}]
@@ -202,8 +200,8 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                         {
                             "role": "user",
                             "content": (
-                                "Lee TODO el PDF desde la primera hasta la última página. "
-                                "Extrae TODAS las líneas de productos (pueden ser muchas). "
+                                "Lee las 4 páginas completas del PDF. "
+                                "Extrae TODAS las líneas de productos sin omitir ninguna. "
                                 "Devuelve SOLO el JSON con todos los productos, sin explicaciones."
                             ),
                             "attachments": [

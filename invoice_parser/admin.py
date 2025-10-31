@@ -20,7 +20,7 @@ class InvoiceLineItemInline(admin.TabularInline):
         "importe",
     ]
     readonly_fields = fields
-    can_delete = False
+    can_delete = True  # Permitir eliminar líneas desde el inline
     
     def has_add_permission(self, request, obj=None):
         return False
@@ -114,6 +114,7 @@ class InvoiceParseAdmin(admin.ModelAdmin):
         ),
     ]
     inlines = [InvoiceLineItemInline]
+    actions = ['delete_selected']  # Habilitar acción de eliminación múltiple
     
     def has_add_permission(self, request):
         """No permitir crear facturas desde el admin."""
@@ -214,11 +215,12 @@ class InvoiceLineItemAdmin(admin.ModelAdmin):
             },
         ),
     ]
+    actions = ['delete_selected']  # Habilitar acción de eliminación múltiple
     
     def has_add_permission(self, request):
         """No permitir crear líneas desde el admin."""
         return False
     
     def has_delete_permission(self, request, obj=None):
-        """No permitir eliminar líneas individuales."""
-        return False
+        """Permitir eliminar líneas individuales."""
+        return True
