@@ -4,7 +4,7 @@ import logging
 import json
 import time
 from decimal import Decimal, InvalidOperation
-from io import StringIO
+from io import StringIO, BytesIO
 import csv
 
 from django.utils import timezone
@@ -94,13 +94,53 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
             
             logger.info(f"Starting invoice parse {invoice_parse.id} for file: {uploaded_file.name}")
             
-            # 1) Subir PDF para assistants
-            uploaded_file.seek(0)  # Volver al inicio
-            # Subir como file-like; el SDK detecta nombre y tipo cuando es posible
-            openai_file = client.files.create(
-                file=uploaded_file,
-                purpose="assistants"
-            )
+            # 1) Subir PDF para assistants (manejo robusto de Django UploadedFile)
+            # El SDK acepta: bytes, io.IOBase, PathLike o tuple (filename, bytes, content_type)
+            # - TemporaryUploadedFile -> usar path o .file (IOBase)
+            # - InMemoryUploadedFile  -> usar .file (IOBase) o BytesIO/tuple
+            openai_file = None
+            try:
+                # Caso 1: TemporaryUploadedFile con path disponible
+                if hasattr(uploaded_file, "temporary_file_path"):
+                    path = uploaded_file.temporary_file_path()
+                    openai_file = client.files.create(
+                        file=path,                   # PathLike
+                        purpose="assistants",
+                    )
+                # Caso 2: Tenemos .file (IOBase) utilizable
+                elif hasattr(uploaded_file, "file") and hasattr(uploaded_file.file, "read"):
+                    fobj = uploaded_file.file      # io.IOBase (SpooledTemporaryFile)
+                    try:
+                        fobj.seek(0)
+                    except Exception:
+                        pass
+                    openai_file = client.files.create(
+                        file=fobj,                  # IOBase
+                        purpose="assistants",
+                    )
+                else:
+                    # Caso 3: Fallback seguro -> bytes/BytesIO o tuple
+                    uploaded_file.seek(0)
+                    data = uploaded_file.read()     # bytes
+                    # a) Como BytesIO (IOBase)
+                    bio = BytesIO(data)
+                    # algunos SDKs leen .name para inferir el filename
+                    try:
+                        bio.name = uploaded_file.name
+                    except Exception:
+                        pass
+                    openai_file = client.files.create(
+                        file=bio,                   # IOBase
+                        purpose="assistants",
+                    )
+                    # Alternativa equivalente: tupla (filename, bytes, content_type)
+                    # openai_file = client.files.create(
+                    #     file=(uploaded_file.name, data, uploaded_file.content_type or "application/pdf"),
+                    #     purpose="assistants",
+                    # )
+            except Exception as upload_error:
+                logger.error(f"Error uploading file to OpenAI: {upload_error}")
+                raise Exception(f"Error al subir archivo a OpenAI: {upload_error}")
             
             logger.info(f"File uploaded to OpenAI: {openai_file.id}")
             invoice_parse.openai_file_id = openai_file.id
