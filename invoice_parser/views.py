@@ -7,6 +7,7 @@ import csv
 import io
 import base64
 import time
+import json
 from decimal import Decimal, InvalidOperation
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets
@@ -128,38 +129,32 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 invoice_parse.openai_file_id = file.id
                 invoice_parse.save(update_fields=["openai_file_id"])
                 
-                # 2) Crear un Assistant para extraer el CSV
+                # 2) Crear un Assistant para extraer los datos en JSON
                 assistant = client.beta.assistants.create(
                     name="Invoice Parser",
                     instructions=(
-                        "Eres un extractor de líneas de productos de facturas en PDF. Debes leer el PDF y extraer TODAS las líneas de productos.\n\n"
-                        "QUÉ BUSCAR EN LA FACTURA:\n"
-                        "- Busca la tabla o lista de productos/artículos en la factura\n"
-                        "- Cada producto/artículo tiene: código, cantidad de cajas, unidades por caja, nombre del artículo, unidades totales, tipo de unidad, y contenedor\n"
-                        "- Extrae TODAS las líneas de productos que encuentres en el documento\n"
-                        "- Lee el documento COMPLETO, no te detengas en la primera página\n\n"
-                        "FORMATO DE SALIDA (CSV):\n"
-                        "Primera línea (header): codigo,cajas,uc,articulo,udes,unidad,contenedor\n"
-                        "Líneas siguientes: los datos de cada producto separados por comas\n\n"
-                        "CAMPOS A EXTRAER:\n"
-                        "- codigo: Código del producto\n"
-                        "- cajas: Número de cajas\n"
-                        "- uc: Unidades por caja (UC o Uc)\n"
-                        "- articulo: Nombre del producto/artículo\n"
-                        "- udes: Unidades totales\n"
-                        "- unidad: Tipo de unidad (kg, ud, etc)\n"
-                        "- contenedor: Número o nombre del contenedor\n\n"
-                        "REGLAS IMPORTANTES:\n"
-                        "1. NO escribas explicaciones, SOLO devuelve el CSV\n"
-                        "2. NO uses bloques de código markdown (```csv)\n"
-                        "3. Usa punto (.) para decimales\n"
-                        "4. Si un campo no tiene valor, déjalo vacío\n"
-                        "5. Extrae TODAS las líneas, no solo algunas\n\n"
-                        "EJEMPLO DE SALIDA:\n"
-                        "codigo,cajas,uc,articulo,udes,unidad,contenedor\n"
-                        "12345,10,5,TOMATE CHERRY,50,kg,CONT-001\n"
-                        "67890,5,10,LECHUGA ROMANA,50,ud,CONT-001\n"
-                        "11111,8,6,PEPINO,48,kg,CONT-002"
+                        "Tu respuesta debe ser SOLO un JSON válido. No escribas NADA más.\n\n"
+                        "PROHIBIDO:\n"
+                        "- NO escribas explicaciones\n"
+                        "- NO escribas código Python\n"
+                        "- NO uses bloques de código markdown\n"
+                        "- NO escribas texto antes o después del JSON\n\n"
+                        "FORMATO OBLIGATORIO:\n"
+                        "Devuelve un JSON con una clave 'productos' que contiene un array de objetos.\n"
+                        "Cada objeto debe tener estas propiedades:\n"
+                        "- codigo: Código del producto (string)\n"
+                        "- cajas: Número de cajas (number o null)\n"
+                        "- uc: Unidades por caja (number o null)\n"
+                        "- articulo: Nombre del producto (string)\n"
+                        "- udes: Unidades totales (number o null)\n"
+                        "- unidad: Tipo de unidad como kg, ud (string)\n"
+                        "- contenedor: Nombre/número del contenedor (string)\n\n"
+                        "IMPORTANTE: Extrae TODAS las líneas de productos del PDF.\n\n"
+                        "EJEMPLO DE RESPUESTA VÁLIDA:\n"
+                        '{"productos": ['
+                        '{"codigo": "12345", "cajas": 10, "uc": 5, "articulo": "TOMATE CHERRY", "udes": 50, "unidad": "kg", "contenedor": "CONT-001"}, '
+                        '{"codigo": "67890", "cajas": 5, "uc": 10, "articulo": "LECHUGA ROMANA", "udes": 50, "unidad": "ud", "contenedor": "CONT-001"}'
+                        ']}'
                     ),
                     model="gpt-4o",
                     tools=[{"type": "code_interpreter"}]
@@ -170,12 +165,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                     messages=[
                         {
                             "role": "user",
-                            "content": (
-                                "Lee este PDF de factura y extrae TODAS las líneas de productos en formato CSV. "
-                                "Busca la tabla de productos en el PDF y extrae cada línea con estos campos: "
-                                "codigo,cajas,uc,articulo,udes,unidad,contenedor. "
-                                "Devuelve SOLO el CSV completo, sin explicaciones."
-                            ),
+                            "content": "Extrae todos los productos de este PDF y devuelve SOLO el JSON. No escribas explicaciones.",
                             "attachments": [
                                 {
                                     "file_id": file.id,
@@ -240,78 +230,77 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 except Exception as e:
                     logger.warning(f"Could not delete assistant: {e}")
                 
-                # 8) Limpiar el CSV si viene con marcadores de código o texto explicativo
-                if csv_data.startswith("```"):
-                    # Remover bloques de código markdown
-                    lines = csv_data.split("\n")
-                    csv_lines = []
+                # 8) Limpiar el JSON si viene con marcadores de código o texto explicativo
+                json_data = csv_data  # Renombrar para claridad
+                
+                # Remover bloques de código markdown si existen
+                if json_data.startswith("```"):
+                    lines = json_data.split("\n")
+                    json_lines = []
                     in_code_block = False
                     for line in lines:
                         if line.startswith("```"):
                             in_code_block = not in_code_block
                             continue
                         if not in_code_block:
-                            csv_lines.append(line)
-                    csv_data = "\n".join(csv_lines).strip()
+                            json_lines.append(line)
+                    json_data = "\n".join(json_lines).strip()
                 
-                # 9) Buscar el CSV real si hay texto explicativo
-                # El CSV debe empezar con el header esperado
-                expected_header = "codigo,cajas,uc,articulo,udes,unidad,contenedor"
-                if not csv_data.startswith(expected_header) and expected_header in csv_data:
-                    # Extraer desde el header hasta el final
-                    start_idx = csv_data.index(expected_header)
-                    csv_data = csv_data[start_idx:].strip()
-                    logger.info("Extracted CSV from text with explanations")
-                elif not csv_data.startswith(expected_header):
-                    # Si no encontramos el header, buscar cualquier línea que parezca CSV
-                    lines = csv_data.split("\n")
-                    csv_lines = []
-                    found_csv = False
-                    for line in lines:
-                        # Una línea CSV tiene comas y no es texto largo sin estructura
-                        if "," in line and len(line.split(",")) >= 5:
-                            found_csv = True
-                            csv_lines.append(line)
-                        elif found_csv and line.strip() == "":
-                            # Línea vacía después del CSV, terminar
-                            break
-                        elif found_csv:
-                            csv_lines.append(line)
+                # 9) Extraer JSON si hay texto explicativo
+                if not json_data.startswith("{"):
+                    logger.warning("Response does not start with JSON. Attempting to extract...")
+                    # Buscar el primer { y el último }
+                    start_idx = json_data.find("{")
+                    end_idx = json_data.rfind("}")
                     
-                    if csv_lines:
-                        csv_data = "\n".join(csv_lines).strip()
-                        logger.info(f"Extracted {len(csv_lines)} CSV lines from mixed content")
+                    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                        json_data = json_data[start_idx:end_idx+1].strip()
+                        logger.info("Extracted JSON from mixed content")
+                    else:
+                        logger.error("Could not find valid JSON in response")
+                        json_data = None
+                
+                # Guardar el JSON extraído
+                csv_data = json_data
                 
                 if not csv_data:
-                    error_detail = f"Could not extract CSV from OpenAI response. Messages count: {len(messages.data)}"
+                    error_detail = f"Could not extract JSON from OpenAI response. Messages count: {len(messages.data)}"
                     logger.error(error_detail)
                     # Log completo de los mensajes para debugging
                     for idx, msg in enumerate(messages.data):
                         logger.error(f"Full message {idx}: {msg}")
                     
                     invoice_parse.status = InvoiceParse.Status.FAILED
-                    invoice_parse.error_message = "No se pudo extraer CSV del modelo."
+                    invoice_parse.error_message = "No se pudo extraer datos del modelo."
                     invoice_parse.save()
                     return Response(
-                        {"detail": "No se pudo extraer CSV del modelo."},
+                        {"detail": "No se pudo extraer datos del modelo."},
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR
                     )
                 
-                # 4) Validar que el CSV no esté truncado
-                csv_line_count = len([line for line in csv_data.split("\n") if line.strip()]) - 1  # -1 por el header
-                logger.info(f"CSV extracted with {csv_line_count} product lines")
+                # 4) Parsear JSON y contar productos
+                try:
+                    data = json.loads(csv_data)
+                    productos = data.get("productos", [])
+                    logger.info(f"JSON parsed successfully with {len(productos)} products")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse JSON: {e}")
+                    logger.error(f"JSON content: {csv_data}")
+                    raise Exception(f"Error parseando JSON: {e}")
                 
-                # Detectar posibles truncamientos
-                if csv_data.endswith("...") or "truncated" in csv_data.lower():
-                    logger.warning("CSV appears to be truncated!")
+                # 5) Convertir JSON a CSV para guardarlo (para compatibilidad)
+                csv_lines = ["codigo,cajas,uc,articulo,udes,unidad,contenedor"]
+                for prod in productos:
+                    line = f"{prod.get('codigo', '')},{prod.get('cajas', '')},{prod.get('uc', '')},{prod.get('articulo', '')},{prod.get('udes', '')},{prod.get('unidad', '')},{prod.get('contenedor', '')}"
+                    csv_lines.append(line)
+                csv_for_storage = "\n".join(csv_lines)
                 
-                # 5) Guardar CSV y parsear líneas
-                logger.info(f"Final CSV data to save:\n{csv_data}")
-                invoice_parse.csv_data = csv_data
+                logger.info(f"Final data to save (CSV format):\n{csv_for_storage}")
+                invoice_parse.csv_data = csv_for_storage
                 invoice_parse.save(update_fields=["csv_data"])
                 
-                # 6) Parsear CSV y crear líneas
-                self._parse_and_save_lines(csv_data, invoice_parse)
+                # 6) Crear líneas desde el JSON
+                self._parse_and_save_lines_from_json(productos, invoice_parse)
                 
                 # 7) Marcar como completado
                 invoice_parse.status = InvoiceParse.Status.COMPLETED
@@ -320,9 +309,9 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 
                 logger.info(f"Invoice parse completed: {invoice_parse.id} with {invoice_parse.line_count} lines")
                 
-                # 8) Devolver el CSV
+                # 8) Devolver el CSV (convertido desde JSON)
                 from django.http import HttpResponse
-                response = HttpResponse(csv_data, content_type="text/csv; charset=utf-8")
+                response = HttpResponse(csv_for_storage, content_type="text/csv; charset=utf-8")
                 response["Content-Disposition"] = 'attachment; filename="factura_parseada.csv"'
                 return response
                 
@@ -343,6 +332,54 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 {"detail": f"Error procesando el PDF: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+    
+    def _parse_and_save_lines_from_json(self, productos, invoice_parse):
+        """Parsea los productos desde JSON y guarda las líneas en la base de datos.
+        
+        Args:
+            productos: Lista de diccionarios con los datos de productos
+            invoice_parse: Instancia de InvoiceParse
+        """
+        try:
+            logger.info(f"Starting to parse {len(productos)} products from JSON for invoice {invoice_parse.id}")
+            
+            lines_to_create = []
+            
+            def safe_decimal(value):
+                if value is None or value == "":
+                    return None
+                try:
+                    return Decimal(str(value).replace(",", "."))
+                except (InvalidOperation, ValueError):
+                    return None
+            
+            for line_number, prod in enumerate(productos, start=1):
+                logger.info(f"Processing product {line_number}: {prod.get('articulo', 'N/A')}")
+                
+                line = InvoiceLineItem(
+                    invoice_parse=invoice_parse,
+                    line_number=line_number,
+                    codigo=str(prod.get("codigo", ""))[:50],
+                    cajas=safe_decimal(prod.get("cajas")),
+                    uc=safe_decimal(prod.get("uc")),
+                    articulo=str(prod.get("articulo", ""))[:255],
+                    udes=safe_decimal(prod.get("udes")),
+                    unidad=str(prod.get("unidad", ""))[:20],
+                    contenedor=str(prod.get("contenedor", ""))[:100],
+                    raw_data=prod
+                )
+                lines_to_create.append(line)
+            
+            # Crear todas las líneas en una sola operación
+            if lines_to_create:
+                InvoiceLineItem.objects.bulk_create(lines_to_create)
+                logger.info(f"Created {len(lines_to_create)} invoice lines for parse {invoice_parse.id}")
+            else:
+                logger.warning(f"No lines were created from JSON for invoice {invoice_parse.id}")
+        
+        except Exception as e:
+            logger.exception(f"Error parsing JSON products: {str(e)}")
+            raise
     
     def _parse_and_save_lines(self, csv_data, invoice_parse):
         """Parsea el CSV y guarda las líneas en la base de datos.
