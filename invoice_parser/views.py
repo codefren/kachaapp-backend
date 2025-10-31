@@ -6,6 +6,7 @@ import tempfile
 import csv
 import io
 import base64
+import time
 from decimal import Decimal, InvalidOperation
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets
@@ -118,7 +119,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 with open(tmp_path, "rb") as f:
                     file = client.files.create(
                         file=f,
-                        purpose="user_data"
+                        purpose="assistants"
                     )
                 
                 logger.info(f"File uploaded to OpenAI: {file.id}")
@@ -127,65 +128,102 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 invoice_parse.openai_file_id = file.id
                 invoice_parse.save(update_fields=["openai_file_id"])
                 
-                # 2) Pedir a GPT-4 Vision que extraiga las tablas como CSV
-                # Leer el PDF como bytes para enviarlo
-                with open(tmp_path, "rb") as pdf_file:
-                    pdf_bytes = pdf_file.read()
-                    pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
-                
-                response = client.chat.completions.create(
+                # 2) Crear un Assistant para extraer el CSV
+                assistant = client.beta.assistants.create(
+                    name="Invoice Parser",
+                    instructions=(
+                        "Eres un extractor de líneas de factura. "
+                        "Analiza el PDF de factura y devuelve SOLO un CSV válido con estos encabezados: "
+                        "codigo,cajas,uc,iva,articulo,udes,unidad,precio,precio_iva,importe,contenedor\n\n"
+                        "Instrucciones:\n"
+                        "- Extrae TODAS las líneas de productos de la factura\n"
+                        "- Si hay varios 'Contenedor:', incluye la columna 'contenedor' para cada línea\n"
+                        "- Usa punto (.) como separador decimal, no coma\n"
+                        "- No incluyas texto adicional, solo el CSV\n"
+                        "- Primera línea debe ser el encabezado\n"
+                        "- Cada línea posterior es un producto"
+                    ),
                     model="gpt-4o",
+                    tools=[{"type": "file_search"}]
+                )
+                
+                # 3) Crear un Thread y enviar el mensaje con el archivo
+                thread = client.beta.threads.create(
                     messages=[
                         {
                             "role": "user",
-                            "content": [
+                            "content": "Extrae las líneas de esta factura como CSV.",
+                            "attachments": [
                                 {
-                                    "type": "text",
-                                    "text": (
-                                        "Eres un extractor de líneas de factura. Analiza este PDF y devuélveme SOLO un CSV válido con estos encabezados:\n"
-                                        "codigo,cajas,uc,iva,articulo,udes,unidad,precio,precio_iva,importe,contenedor\n"
-                                        "\n"
-                                        "Instrucciones:\n"
-                                        "- Extrae TODAS las líneas de productos de la factura\n"
-                                        "- Si hay varios 'Contenedor:', incluye la columna 'contenedor' para cada línea\n"
-                                        "- Usa punto (.) como separador decimal, no coma\n"
-                                        "- No incluyas texto adicional, solo el CSV\n"
-                                        "- Primera línea debe ser el encabezado\n"
-                                        "- Cada línea posterior es un producto"
-                                    )
-                                },
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:application/pdf;base64,{pdf_base64}"
-                                    }
+                                    "file_id": file.id,
+                                    "tools": [{"type": "file_search"}]
                                 }
                             ]
                         }
-                    ],
-                    max_tokens=4096
+                    ]
                 )
                 
-                # 3) Extraer el CSV de la respuesta
+                # 4) Ejecutar el Assistant
+                run = client.beta.threads.runs.create(
+                    thread_id=thread.id,
+                    assistant_id=assistant.id
+                )
+                
+                # 5) Esperar a que termine (con timeout)
+                timeout = 60  # 60 segundos
+                start_time = time.time()
+                
+                while run.status in ["queued", "in_progress"]:
+                    if time.time() - start_time > timeout:
+                        logger.error("Timeout waiting for OpenAI response")
+                        raise Exception("Timeout procesando el PDF")
+                    
+                    time.sleep(1)
+                    run = client.beta.threads.runs.retrieve(
+                        thread_id=thread.id,
+                        run_id=run.id
+                    )
+                
+                if run.status != "completed":
+                    logger.error(f"Run failed with status: {run.status}")
+                    raise Exception(f"Error procesando el PDF: {run.status}")
+                
+                # 6) Obtener la respuesta
+                messages = client.beta.threads.messages.list(
+                    thread_id=thread.id,
+                    order="asc"
+                )
+                
+                # Buscar el mensaje del assistant
                 csv_data = ""
-                if response.choices and len(response.choices) > 0:
-                    message = response.choices[0].message
-                    if message.content:
-                        csv_data = message.content.strip()
-                        
-                        # Limpiar el CSV si viene con marcadores de código
-                        if csv_data.startswith("```"):
-                            # Remover bloques de código markdown
-                            lines = csv_data.split("\n")
-                            csv_lines = []
-                            in_code_block = False
-                            for line in lines:
-                                if line.startswith("```"):
-                                    in_code_block = not in_code_block
-                                    continue
-                                if not in_code_block:
-                                    csv_lines.append(line)
-                            csv_data = "\n".join(csv_lines).strip()
+                for message in messages.data:
+                    if message.role == "assistant":
+                        for content in message.content:
+                            if hasattr(content, "text"):
+                                csv_data = content.text.value
+                                break
+                        if csv_data:
+                            break
+                
+                # 7) Limpiar recursos
+                try:
+                    client.beta.assistants.delete(assistant.id)
+                except Exception as e:
+                    logger.warning(f"Could not delete assistant: {e}")
+                
+                # 8) Limpiar el CSV si viene con marcadores de código
+                if csv_data.startswith("```"):
+                    # Remover bloques de código markdown
+                    lines = csv_data.split("\n")
+                    csv_lines = []
+                    in_code_block = False
+                    for line in lines:
+                        if line.startswith("```"):
+                            in_code_block = not in_code_block
+                            continue
+                        if not in_code_block:
+                            csv_lines.append(line)
+                    csv_data = "\n".join(csv_lines).strip()
                 
                 if not csv_data:
                     logger.error("Could not extract CSV from OpenAI response")
