@@ -22,15 +22,9 @@ class InvoiceLineItemInline(admin.TabularInline):
     ]
     readonly_fields = fields
     can_delete = True  # Permitir eliminar líneas desde el inline
-    show_change_link = True  # Mostrar link para ver detalles de cada línea
     
     def has_add_permission(self, request, obj=None):
         return False
-    
-    def get_queryset(self, request):
-        """Obtener todas las líneas sin limitación."""
-        qs = super().get_queryset(request)
-        return qs.order_by('line_number')
 
 
 @admin.register(InvoiceParse)
@@ -63,7 +57,8 @@ class InvoiceParseAdmin(admin.ModelAdmin):
         "status",
         "csv_data",
         "openai_file_id",
-        "openai_response",
+        "openai_thread_id",
+        "openai_run_id",
         "error_message",
         "created_at",
         "updated_at",
@@ -97,7 +92,8 @@ class InvoiceParseAdmin(admin.ModelAdmin):
             {
                 "fields": [
                     "openai_file_id",
-                    "openai_response",
+                    "openai_thread_id",
+                    "openai_run_id",
                 ],
                 "classes": ["collapse"],
             },
@@ -143,9 +139,9 @@ class InvoiceLineItemAdmin(admin.ModelAdmin):
         "codigo",
         "articulo",
         "cajas",
+        "uc",
         "udes",
-        "precio",
-        "importe",
+        "unidad",
     ]
     list_filter = [
         "invoice_parse__status",
@@ -162,13 +158,9 @@ class InvoiceLineItemAdmin(admin.ModelAdmin):
         "codigo",
         "cajas",
         "uc",
-        "iva",
         "articulo",
         "udes",
         "unidad",
-        "precio",
-        "precio_iva",
-        "importe",
         "contenedor",
         "raw_data",
         "created_at",
@@ -194,17 +186,6 @@ class InvoiceLineItemAdmin(admin.ModelAdmin):
                     "udes",
                     "unidad",
                     "contenedor",
-                ]
-            },
-        ),
-        (
-            "Precios e Impuestos",
-            {
-                "fields": [
-                    "precio",
-                    "precio_iva",
-                    "iva",
-                    "importe",
                 ]
             },
         ),

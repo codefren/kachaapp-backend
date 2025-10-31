@@ -1,13 +1,8 @@
-"""Views for invoice parser."""
+"""Views for invoice parser with corrected OpenAI integration."""
 
 import logging
-import os
-import tempfile
-import csv
-import io
-import base64
-import time
 import json
+import time
 from decimal import Decimal, InvalidOperation
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets
@@ -15,8 +10,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.conf import settings
 from django.db import transaction
-from drf_spectacular.utils import extend_schema, OpenApiParameter
-from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
+from openai import OpenAI
 
 from .models import InvoiceParse, InvoiceLineItem
 from .serializers import (
@@ -31,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class InvoiceParserViewSet(viewsets.ModelViewSet):
-    """ViewSet para parsear facturas PDF usando OpenAI."""
+    """ViewSet para parsear facturas PDF usando OpenAI con JSON Schema estricto."""
     
     queryset = InvoiceParse.objects.select_related("uploaded_by").prefetch_related("lines").all()
     permission_classes = [permissions.IsAuthenticated]
@@ -48,38 +43,41 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
         return InvoiceParseSerializer
     
     def get_queryset(self):
-        """Filtra facturas por usuario actual."""
+        """Filtra facturas por usuario."""
         return self.queryset.filter(uploaded_by=self.request.user)
     
     @extend_schema(
         request=InvoiceUploadSerializer,
-        responses={
-            200: InvoiceParseResponseSerializer,
-            400: OpenApiTypes.OBJECT,
-            500: OpenApiTypes.OBJECT,
-        },
-        description="Parsea una factura PDF y extrae las líneas como CSV",
+        responses={200: InvoiceParseResponseSerializer},
+        description="Parsea un PDF de factura usando OpenAI y extrae líneas de productos"
     )
-    @action(detail=False, methods=["post"], url_path="parse")
+    @action(detail=False, methods=["post"])
     def parse(self, request):
-        """Endpoint para parsear factura PDF.
+        """
+        Parsea un PDF de factura usando OpenAI con JSON Schema estricto.
         
-        Recibe un archivo PDF, lo procesa con OpenAI y devuelve los datos
-        extraídos en formato CSV.
-        
-        Returns:
-            CSV con las líneas de la factura extraídas
+        Mejoras implementadas:
+        - Thread nuevo por factura (no reutiliza threads)
+        - PDF adjunto directamente en el mensaje
+        - JSON Schema con minItems/maxItems para validar conteo
+        - tool_choice="none" para evitar conversación
+        - Lee SOLO mensajes del run actual (no del thread completo)
+        - Validación estricta del conteo esperado
         """
         serializer = InvoiceUploadSerializer(data=request.data)
-        if not serializer.is_valid():
+        serializer.is_valid(raise_exception=True)
+        
+        uploaded_file = serializer.validated_data['file']
+        expected_lines = serializer.validated_data.get('expected_lines', 118)
+        
+        # Validar que sea PDF
+        if not uploaded_file.name.lower().endswith('.pdf'):
             return Response(
-                {"detail": "Datos inválidos", "errors": serializer.errors},
+                {"detail": "El archivo debe ser un PDF"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        uploaded_file = serializer.validated_data["file"]
-        
-        # Crear registro de InvoiceParse
+        # Crear registro de factura
         invoice_parse = InvoiceParse.objects.create(
             uploaded_by=request.user,
             original_filename=uploaded_file.name,
@@ -88,429 +86,287 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
         )
         
         try:
-            # Importar OpenAI dentro de la función para evitar errores si no está instalado
+            # Inicializar cliente OpenAI
+            client = OpenAI(api_key=settings.OPENAI_API_KEY)
+            
+            logger.info(f"Starting invoice parse {invoice_parse.id} for file: {uploaded_file.name}")
+            
+            # 1) Subir PDF para assistants
+            uploaded_file.seek(0)  # Volver al inicio
+            openai_file = client.files.create(
+                file=uploaded_file,
+                purpose="assistants"
+            )
+            
+            logger.info(f"File uploaded to OpenAI: {openai_file.id}")
+            invoice_parse.openai_file_id = openai_file.id
+            invoice_parse.save(update_fields=["openai_file_id"])
+            
+            # 2) Crear Assistant con instrucciones estrictas
+            assistant = client.beta.assistants.create(
+                name="Invoice Parser — JSON estricto",
+                model="gpt-4o",
+                instructions=self._get_parsing_instructions(expected_lines),
+            )
+            
+            # 3) Crear thread NUEVO con el PDF adjunto (CRÍTICO: thread limpio)
+            thread = client.beta.threads.create(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"Lee las 4 páginas del PDF adjunto y devuelve SOLO el JSON con TODOS los {expected_lines} productos.",
+                        "attachments": [
+                            {
+                                "file_id": openai_file.id,
+                                "tools": []  # Sin herramientas
+                            }
+                        ],
+                    }
+                ]
+            )
+            
+            logger.info(f"Thread created: {thread.id}")
+            invoice_parse.openai_thread_id = thread.id
+            invoice_parse.save(update_fields=["openai_thread_id"])
+            
+            # 4) JSON Schema estricto con min/max items
+            json_schema = self._get_json_schema(expected_lines)
+            
+            # 5) Ejecutar run con validación estricta
+            run = client.beta.threads.runs.create(
+                thread_id=thread.id,
+                assistant_id=assistant.id,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "productos_schema",
+                        "schema": json_schema,
+                        "strict": True
+                    }
+                },
+                tool_choice="none",  # NO usar herramientas
+                max_completion_tokens=16000,
+            )
+            
+            logger.info(f"Run created: {run.id}")
+            invoice_parse.openai_run_id = run.id
+            invoice_parse.save(update_fields=["openai_run_id"])
+            
+            # 6) Esperar a que termine (con timeout)
+            timeout = 300  # 5 minutos
+            start_time = time.time()
+            
+            while True:
+                r = client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
+                
+                if r.status in ("completed", "failed", "cancelled", "expired"):
+                    break
+                
+                if time.time() - start_time > timeout:
+                    logger.error("Timeout waiting for OpenAI response")
+                    raise Exception("Timeout procesando el PDF")
+                
+                time.sleep(2)
+            
+            if r.status != "completed":
+                logger.error(f"Run failed with status: {r.status}")
+                raise Exception(f"Error procesando el PDF: {r.status}")
+            
+            # 7) Leer SOLO los mensajes de este run (CRÍTICO: no del thread completo)
+            msgs = client.beta.threads.messages.list(
+                thread_id=thread.id,
+                run_id=run.id  # Filtrar por run_id
+            )
+            
+            logger.info(f"Received {len(msgs.data)} messages from this run")
+            
+            # 8) Obtener el último mensaje del assistant de este run
+            assistant_msgs = [m for m in msgs.data if m.role == "assistant"]
+            if not assistant_msgs:
+                raise Exception("No se encontró mensaje del assistant para este run")
+            
+            # El primer mensaje es el más reciente (list ordena desc)
+            msg = assistant_msgs[0]
+            
+            # 9) Extraer texto (JSON puro)
+            parts = []
+            for c in msg.content:
+                if c.type == "text":
+                    parts.append(c.text.value)
+            json_text = "".join(parts).strip()
+            
+            logger.info(f"Extracted JSON length: {len(json_text)} characters")
+            
+            # 10) Parsear y validar JSON
             try:
-                from openai import OpenAI
-            except ImportError:
-                logger.error("OpenAI library not installed")
-                return Response(
-                    {"detail": "OpenAI library not installed. Install with: pip install openai"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
+                data = json.loads(json_text)
+                productos = data.get("productos", [])
+                
+                logger.info(f"JSON parsed successfully with {len(productos)} products")
+                
+                # Validación estricta del conteo
+                if len(productos) != expected_lines:
+                    logger.error(f"Product count mismatch: {len(productos)} != {expected_lines}")
+                    raise ValueError(
+                        f"Conteo inesperado: {len(productos)} productos extraídos, "
+                        f"se esperaban {expected_lines}"
+                    )
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON: {e}")
+                logger.error(f"JSON content preview: {json_text[:500]}")
+                raise Exception(f"Error parseando JSON: {e}")
             
-            # Verificar que existe la API key
-            api_key = getattr(settings, "OPENAI_API_KEY", None) or os.environ.get("OPENAI_API_KEY")
-            if not api_key:
-                logger.error("OPENAI_API_KEY not configured")
-                return Response(
-                    {"detail": "OPENAI_API_KEY no está configurada en settings o variables de entorno"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
+            # 11) Guardar como CSV (para compatibilidad)
+            csv_lines = ["codigo,cajas,uc,articulo,udes,unidad,contenedor"]
+            for prod in productos:
+                line = ",".join([
+                    str(prod.get('codigo', '')),
+                    str(prod.get('cajas', '')),
+                    str(prod.get('uc', '')),
+                    str(prod.get('articulo', '')).replace(',', ' '),  # Escapar comas
+                    str(prod.get('udes', '')),
+                    str(prod.get('unidad', '')),
+                    str(prod.get('contenedor', '')),
+                ])
+                csv_lines.append(line)
             
-            client = OpenAI(api_key=api_key)
+            csv_data = "\n".join(csv_lines)
             
-            # Guardar el archivo temporalmente
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-                for chunk in uploaded_file.chunks():
-                    tmp_file.write(chunk)
-                tmp_path = tmp_file.name
+            logger.info(f"CSV data generated: {len(csv_lines)} lines")
             
+            # 12) Guardar en BD
+            invoice_parse.csv_data = csv_data
+            invoice_parse.save(update_fields=["csv_data"])
+            
+            # 13) Crear líneas individuales
+            with transaction.atomic():
+                logger.info(f"Starting to create {len(productos)} invoice lines for parse {invoice_parse.id}")
+                
+                for idx, prod in enumerate(productos, start=1):
+                    InvoiceLineItem.objects.create(
+                        invoice_parse=invoice_parse,
+                        line_number=idx,
+                        codigo=str(prod.get('codigo', ''))[:50],
+                        cajas=self._parse_decimal(prod.get('cajas')),
+                        uc=self._parse_decimal(prod.get('uc')),
+                        articulo=str(prod.get('articulo', ''))[:255],
+                        udes=self._parse_decimal(prod.get('udes')),
+                        unidad=str(prod.get('unidad', '')) if prod.get('unidad') else None,
+                        contenedor=str(prod.get('contenedor', '')) if prod.get('contenedor') else None,
+                        raw_data=prod,
+                    )
+                
+                logger.info(f"Created {len(productos)} invoice lines for parse {invoice_parse.id}")
+            
+            # 14) Marcar como completado
+            invoice_parse.status = InvoiceParse.Status.COMPLETED
+            invoice_parse.completed_at = timezone.now()
+            invoice_parse.save(update_fields=["status", "completed_at"])
+            
+            # 15) Limpiar recursos de OpenAI
             try:
-                # 1) Subir el PDF a OpenAI
-                with open(tmp_path, "rb") as f:
-                    file = client.files.create(
-                        file=f,
-                        purpose="assistants"
-                    )
-                
-                logger.info(f"File uploaded to OpenAI: {file.id}")
-                
-                # Guardar el file_id de OpenAI
-                invoice_parse.openai_file_id = file.id
-                invoice_parse.save(update_fields=["openai_file_id"])
-                
-                # 2) Crear un Assistant para extraer los datos en JSON
-                assistant = client.beta.assistants.create(
-                    name="Invoice Parser — FACTURA (JSON estricto)",
-                    instructions=(
-                        "SALIDA JSON (BLOQUEANTE):\n"
-                        "- Devuelve ÚNICAMENTE un JSON válido que empiece con '{' y termine con '}'.\n"
-                        "- Prohibido texto fuera del JSON, markdown, explicaciones o logs.\n"
-                        "- Prohibido generar cadenas adyacentes: dentro de cualquier campo string NO puede aparecer el patrón: \"...\"+<espacios>+\"…\"\n"
-                        "  Si detectas que una descripción se partiría así, únelas en una sola cadena con un espacio.\n"
-                        "- Prohibido comillas sin escapar dentro de strings. Si aparece una comilla doble en la descripción, reemplázala por comilla simple o escápala con \\.\n\n"
-                        
-                        "ALCANCE (PDF ESPECÍFICO):\n"
-                        "- Documento: FACTURA Nº 0098727880 (ref. FR00987278805).\n"
-                        "- Páginas: 4 (procésalas TODAS).\n"
-                        "- Encabezado de tabla (repetido): 'Código Cajas U/C IVA PVP rec. Ofe Artículo Udes./Kg Precio Precio+IVA Importe'.\n"
-                        "- Existen bloques 'Contenedor: <id>' que agrupan líneas siguientes hasta el próximo 'Contenedor:'.\n\n"
-                        
-                        "OBJETIVO:\n"
-                        "- Extrae TODAS las líneas de productos (118 en total).\n"
-                        "- Devuelve por cada línea EXACTAMENTE estos 7 campos:\n"
-                        "  - codigo: string\n"
-                        "  - cajas: number|null\n"
-                        "  - uc: number|null\n"
-                        "  - articulo: string\n"
-                        "  - udes: number|null\n"
-                        "  - unidad: string|null (UN, KG, L, ML, G... en mayúsculas, o null)\n"
-                        "  - contenedor: string|null\n\n"
-                        
-                        "PARSING (REGLAS DE ESTE PDF):\n"
-                        "- Las filas válidas están bajo el encabezado. 'Artículo' puede ser largo y/o multilínea; une el texto en UNA sola cadena.\n"
-                        "- Si ves texto tipo abreviatura seguida de punto (ej. 'ROLL.'), NUNCA cierres y reabras comillas: mantén 'articulo' como una sola cadena: 'ROLL. PAPEL ...'.\n"
-                        "- Asigna el último 'Contenedor: <id>' visto a cada fila posterior hasta que cambie.\n"
-                        "- Ignora: cabeceras repetidas, 'FALTAS EN EL SERVICIO', SUBTOTAL, IVA/BASES/SUMAS, 'Total Factura', notas y pies de página.\n"
-                        "- No inventes datos: si un campo no aparece de forma inequívoca, pon null.\n"
-                        "- Normaliza unidades: U/UD/UDS→'UN'; KGS→'KG'; LTS→'L'.\n"
-                        "- No calcules 'udes' como cajas*uc; si no está explícito, deja null.\n"
-                        "- Elimina duplicados causados por saltos de página y cabeceras.\n\n"
-                        
-                        "SANITIZACIÓN DE STRINGS:\n"
-                        "- Recorta espacios extremos.\n"
-                        "- Sustituye saltos de línea internos de 'articulo' por un solo espacio.\n"
-                        "- Prohibido incluir comillas dobles sin escapar; si existen en la fuente, usa comilla simple.\n"
-                        "- Asegura que 'articulo' sea UNA única cadena JSON (sin concatenar dos strings).\n\n"
-                        
-                        "CONTROL DE CALIDAD:\n"
-                        "- Deben salir **118** objetos en 'productos'.\n"
-                        "- Tipos correctos: numbers sin comillas; strings UTF-8; null cuando falte.\n"
-                        "- Cada objeto debe tener **exactamente** las 7 claves pedidas (ni más ni menos).\n"
-                        "- Verifica que 'articulo' no sea un encabezado, total o nota.\n\n"
-                        
-                        "RESPUESTA FINAL (ÚNICA):\n"
-                        '{"productos":[ ... 118 objetos ... ]}'
-                    ),
-                    model="gpt-4o",
-                    response_format={"type": "json_object"}  # Forzar respuesta en JSON puro
-                )
-                
-                # 3) Crear un Thread y enviar el mensaje con el archivo
-                thread = client.beta.threads.create(
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": (
-                                "Lee las 4 páginas completas del PDF. "
-                                "Extrae TODAS las líneas de productos sin omitir ninguna. "
-                                "Devuelve SOLO el JSON con todos los productos, sin explicaciones."
-                            ),
-                            "attachments": [
-                                {
-                                    "file_id": file.id,
-                                    "tools": [{"type": "file_search"}]  # file_search en lugar de code_interpreter
-                                }
-                            ]
-                        }
-                    ]
-                )
-                
-                # 4) Ejecutar el Assistant
-                run = client.beta.threads.runs.create(
-                    thread_id=thread.id,
-                    assistant_id=assistant.id,
-                    max_completion_tokens=16000  # Permitir respuestas largas (100-120 productos)
-                )
-                
-                # 5) Esperar a que termine (con timeout)
-                timeout = 300  # 300 segundos (5 minutos para PDFs grandes)
-                start_time = time.time()
-                
-                while run.status in ["queued", "in_progress"]:
-                    if time.time() - start_time > timeout:
-                        logger.error("Timeout waiting for OpenAI response")
-                        raise Exception("Timeout procesando el PDF")
-                    
-                    time.sleep(1)
-                    run = client.beta.threads.runs.retrieve(
-                        thread_id=thread.id,
-                        run_id=run.id
-                    )
-                
-                if run.status != "completed":
-                    logger.error(f"Run failed with status: {run.status}")
-                    raise Exception(f"Error procesando el PDF: {run.status}")
-                
-                # 6) Obtener la respuesta
-                messages = client.beta.threads.messages.list(
-                    thread_id=thread.id,
-                    order="asc"
-                )
-                
-                logger.info(f"Received {len(messages.data)} messages from thread")
-                
-                # Buscar el ÚLTIMO mensaje del assistant que contenga JSON
-                # (ignorar mensajes de conversación intermedios)
-                csv_data = ""
-                assistant_messages = []
-                
-                for idx, message in enumerate(messages.data):
-                    logger.info(f"Message {idx}: role={message.role}, content_count={len(message.content)}")
-                    if message.role == "assistant":
-                        for content in message.content:
-                            if hasattr(content, "text"):
-                                text = content.text.value
-                                assistant_messages.append((idx, text))
-                                logger.info(f"Assistant message {idx} length: {len(text)}, starts with: {text[:50]}...")
-                
-                # Buscar el mensaje que contenga JSON (el que empiece con { o contenga "productos")
-                for idx, text in reversed(assistant_messages):  # Empezar por el último
-                    if "{" in text and "productos" in text:
-                        csv_data = text
-                        logger.info(f"Using message {idx} as JSON source (length: {len(csv_data)})")
-                        break
-                
-                # Si no encontramos ningún mensaje con JSON, usar el último mensaje del assistant
-                if not csv_data and assistant_messages:
-                    csv_data = assistant_messages[-1][1]
-                    logger.warning(f"No JSON-like message found, using last assistant message")
-                
-                # 7) Limpiar recursos
-                try:
-                    client.beta.assistants.delete(assistant.id)
-                except Exception as e:
-                    logger.warning(f"Could not delete assistant: {e}")
-                
-                # 8) Verificar si el JSON está truncado
-                if csv_data and (csv_data.endswith("...") or csv_data.endswith("...\n")):
-                    logger.error("JSON response appears to be truncated (ends with ...)")
-                    invoice_parse.status = InvoiceParse.Status.FAILED
-                    invoice_parse.error_message = "Respuesta truncada del modelo. Intenta de nuevo."
-                    invoice_parse.save()
-                    return Response(
-                        {"detail": "Respuesta truncada del modelo. Intenta de nuevo."},
-                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                    )
-                
-                # 9) Limpiar el JSON si viene con marcadores de código o texto explicativo
-                json_data = csv_data  # Renombrar para claridad
-                
-                # Remover bloques de código markdown si existen
-                if "```" in json_data:
-                    # Remover líneas que solo contienen ``` o ```json
-                    lines = json_data.split("\n")
-                    json_lines = []
-                    for line in lines:
-                        stripped = line.strip()
-                        # Ignorar líneas que solo son marcadores de código
-                        if stripped.startswith("```"):
-                            continue
-                        json_lines.append(line)
-                    json_data = "\n".join(json_lines).strip()
-                    logger.info("Removed markdown code blocks")
-                
-                # 9) Extraer JSON si hay texto explicativo
-                if not json_data.startswith("{"):
-                    logger.warning("Response does not start with JSON. Attempting to extract...")
-                    # Buscar el primer { y el último }
-                    start_idx = json_data.find("{")
-                    end_idx = json_data.rfind("}")
-                    
-                    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-                        json_data = json_data[start_idx:end_idx+1].strip()
-                        logger.info("Extracted JSON from mixed content")
-                    else:
-                        logger.error("Could not find valid JSON in response")
-                        json_data = None
-                
-                # Guardar el JSON extraído
-                csv_data = json_data
-                
-                if not csv_data:
-                    error_detail = f"Could not extract JSON from OpenAI response. Messages count: {len(messages.data)}"
-                    logger.error(error_detail)
-                    # Log completo de los mensajes para debugging
-                    for idx, msg in enumerate(messages.data):
-                        logger.error(f"Full message {idx}: {msg}")
-                    
-                    invoice_parse.status = InvoiceParse.Status.FAILED
-                    invoice_parse.error_message = "No se pudo extraer datos del modelo."
-                    invoice_parse.save()
-                    return Response(
-                        {"detail": "No se pudo extraer datos del modelo."},
-                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                    )
-                
-                # 4) Limpiar JSON de strings duplicados (error comun del modelo)
-                # Reemplazar patrones como articulo:ROLL. PAPEL con articulo:ROLL. PAPEL
-                import re
-                csv_data = re.sub(r'"\s+"', ' ', csv_data)
-                logger.info("Applied JSON cleanup for duplicate strings")
-                
-                # 5) Parsear JSON y contar productos
-                try:
-                    data = json.loads(csv_data)
-                    productos = data.get("productos", [])
-                    logger.info(f"JSON parsed successfully with {len(productos)} products")
-                    
-                    # Validar que no se haya truncado
-                    if len(productos) < 10:
-                        logger.warning(f"Only {len(productos)} products extracted. This seems too few!")
-                    
-                    # Verificar si el JSON está completo
-                    if not csv_data.rstrip().endswith("}"):
-                        logger.error(f"JSON appears incomplete! Ends with: ...{csv_data[-50:]}")
-                    else:
-                        logger.info(f"JSON is complete. Total products: {len(productos)}")
-                    
-                    # Log del JSON completo para revisar (primeros y últimos caracteres)
-                    logger.info(f"JSON start: {csv_data[:200]}...")
-                    logger.info(f"JSON end: ...{csv_data[-200:]}")
-                    logger.info(f"Total JSON length: {len(csv_data)} characters")
-                    
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse JSON: {e}")
-                    logger.error(f"JSON content: {csv_data}")
-                    raise Exception(f"Error parseando JSON: {e}")
-                
-                # 5) Convertir JSON a CSV para guardarlo (para compatibilidad)
-                csv_lines = ["codigo,cajas,uc,articulo,udes,unidad,contenedor"]
-                for prod in productos:
-                    line = f"{prod.get('codigo', '')},{prod.get('cajas', '')},{prod.get('uc', '')},{prod.get('articulo', '')},{prod.get('udes', '')},{prod.get('unidad', '')},{prod.get('contenedor', '')}"
-                    csv_lines.append(line)
-                csv_for_storage = "\n".join(csv_lines)
-                
-                logger.info(f"Final data to save (CSV format):\n{csv_for_storage}")
-                invoice_parse.csv_data = csv_for_storage
-                invoice_parse.save(update_fields=["csv_data"])
-                
-                # 6) Crear líneas desde el JSON
-                self._parse_and_save_lines_from_json(productos, invoice_parse)
-                
-                # 7) Marcar como completado
-                invoice_parse.status = InvoiceParse.Status.COMPLETED
-                invoice_parse.completed_at = timezone.now()
-                invoice_parse.save(update_fields=["status", "completed_at"])
-                
-                logger.info(f"Invoice parse completed: {invoice_parse.id} with {invoice_parse.line_count} lines")
-                
-                # 8) Devolver el CSV (convertido desde JSON)
-                from django.http import HttpResponse
-                response = HttpResponse(csv_for_storage, content_type="text/csv; charset=utf-8")
-                response["Content-Disposition"] = 'attachment; filename="factura_parseada.csv"'
-                return response
-                
-            finally:
-                # Limpiar archivo temporal
-                if os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
-        
+                client.beta.assistants.delete(assistant.id)
+                logger.info(f"Deleted assistant: {assistant.id}")
+            except Exception as e:
+                logger.warning(f"Could not delete assistant: {e}")
+            
+            logger.info(f"Invoice parse completed: {invoice_parse.id} with {len(productos)} lines")
+            
+            response_serializer = InvoiceParseResponseSerializer(invoice_parse)
+            return Response(response_serializer.data, status=status.HTTP_200_OK)
+            
         except Exception as e:
-            logger.exception(f"Error processing PDF: {str(e)}")
+            logger.error(f"Error processing PDF: {str(e)}", exc_info=True)
             
-            # Actualizar estado de error
             invoice_parse.status = InvoiceParse.Status.FAILED
             invoice_parse.error_message = str(e)
-            invoice_parse.save()
+            invoice_parse.save(update_fields=["status", "error_message"])
             
             return Response(
-                {"detail": f"Error procesando el PDF: {str(e)}"},
+                {"detail": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
-    def _parse_and_save_lines_from_json(self, productos, invoice_parse):
-        """Parsea los productos desde JSON y guarda las líneas en la base de datos.
-        
-        Args:
-            productos: Lista de diccionarios con los datos de productos
-            invoice_parse: Instancia de InvoiceParse
-        """
-        try:
-            logger.info(f"Starting to parse {len(productos)} products from JSON for invoice {invoice_parse.id}")
-            
-            lines_to_create = []
-            
-            def safe_decimal(value):
-                if value is None or value == "":
-                    return None
-                try:
-                    return Decimal(str(value).replace(",", "."))
-                except (InvalidOperation, ValueError):
-                    return None
-            
-            for line_number, prod in enumerate(productos, start=1):
-                logger.info(f"Processing product {line_number}: {prod.get('articulo', 'N/A')}")
-                
-                line = InvoiceLineItem(
-                    invoice_parse=invoice_parse,
-                    line_number=line_number,
-                    codigo=str(prod.get("codigo", ""))[:50],
-                    cajas=safe_decimal(prod.get("cajas")),
-                    uc=safe_decimal(prod.get("uc")),
-                    articulo=str(prod.get("articulo", ""))[:255],
-                    udes=safe_decimal(prod.get("udes")),
-                    unidad=str(prod.get("unidad", ""))[:20],
-                    contenedor=str(prod.get("contenedor", ""))[:100],
-                    raw_data=prod
-                )
-                lines_to_create.append(line)
-            
-            # Crear todas las líneas en una sola operación
-            if lines_to_create:
-                InvoiceLineItem.objects.bulk_create(lines_to_create)
-                logger.info(f"Created {len(lines_to_create)} invoice lines for parse {invoice_parse.id}")
-            else:
-                logger.warning(f"No lines were created from JSON for invoice {invoice_parse.id}")
-        
-        except Exception as e:
-            logger.exception(f"Error parsing JSON products: {str(e)}")
-            raise
+    def _get_parsing_instructions(self, expected_lines):
+        """Genera las instrucciones para el Assistant."""
+        return f"""
+SALIDA JSON (BLOQUEANTE):
+- Devuelve ÚNICAMENTE un JSON válido que empiece con "{{" y termine con "}}".
+- Prohibido texto fuera del JSON, markdown, explicaciones o logs.
+- Prohibido generar cadenas adyacentes: dentro de cualquier campo string NO puede aparecer el patrón: "..."+<espacios>+"..."
+  Si una descripción se partiría así, únelas en una sola cadena con un espacio.
+- Prohibido comillas sin escapar en strings (escapa \\" o usa comilla simple).
+
+ALCANCE (PDF ESPECÍFICO):
+- Documento: FACTURA Nº 0098727880 (ref. FR00987278805).
+- Páginas: 4 (procésalas TODAS).
+- Encabezado repetido: "Código Cajas U/C IVA PVP rec. Ofe Artículo Udes./Kg Precio Precio+IVA Importe".
+- Bloques "Contenedor: <id>" agrupan filas siguientes hasta el próximo "Contenedor:".
+
+OBJETIVO:
+- Extrae TODAS las líneas de productos ({expected_lines} en total).
+- Devuelve por cada línea EXACTAMENTE estos 7 campos:
+  - codigo: string
+  - cajas: number|null
+  - uc: number|null
+  - articulo: string
+  - udes: number|null
+  - unidad: string|null (UN, KG, L, ML, G... en mayúsculas, o null)
+  - contenedor: string|null
+
+REGLAS:
+- "Artículo" puede ser largo/multilínea: devuélvelo como UNA sola cadena.
+- Asigna el último "Contenedor: <id>" visto a cada fila posterior hasta cambiar.
+- Ignora cabeceras, "FALTAS EN EL SERVICIO", SUBTOTAL/IVA/BASES/SUMAS/"Total Factura", notas y pies.
+- No inventes: si un campo no aparece inequívoco, usa null.
+- Normaliza unidades: U/UD/UDS→"UN"; KGS→"KG"; LTS→"L".
+- No calcules udes como cajas*uc; si no está explícito, deja null.
+- Elimina duplicados por saltos de página/cabeceras.
+
+CONTROL:
+- Deben salir {expected_lines} objetos en "productos".
+- Tipos correctos: numbers sin comillas; strings UTF-8; null cuando falte.
+- Cada objeto debe tener exactamente las 7 claves pedidas.
+
+RESPUESTA FINAL (ÚNICA):
+{{"productos":[ ... {expected_lines} objetos ... ]}}
+""".strip()
     
-    def _parse_and_save_lines(self, csv_data, invoice_parse):
-        """Parsea el CSV y guarda las líneas en la base de datos.
-        
-        Args:
-            csv_data: String con los datos CSV
-            invoice_parse: Instancia de InvoiceParse
-        """
+    def _get_json_schema(self, expected_lines):
+        """Genera el JSON Schema con validación estricta."""
+        return {
+            "type": "object",
+            "properties": {
+                "productos": {
+                    "type": "array",
+                    "minItems": expected_lines,
+                    "maxItems": expected_lines,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["codigo", "cajas", "uc", "articulo", "udes", "unidad", "contenedor"],
+                        "properties": {
+                            "codigo": {"type": "string"},
+                            "cajas": {"type": ["number", "null"]},
+                            "uc": {"type": ["number", "null"]},
+                            "articulo": {"type": "string"},
+                            "udes": {"type": ["number", "null"]},
+                            "unidad": {"type": ["string", "null"]},
+                            "contenedor": {"type": ["string", "null"]},
+                        },
+                    },
+                }
+            },
+            "required": ["productos"],
+            "additionalProperties": False,
+        }
+    
+    def _parse_decimal(self, value):
+        """Convierte un valor a Decimal de forma segura."""
+        if value is None or value == "":
+            return None
         try:
-            logger.info(f"Starting to parse CSV for invoice {invoice_parse.id}")
-            # Leer CSV
-            csv_file = io.StringIO(csv_data)
-            reader = csv.DictReader(csv_file)
-            
-            lines_to_create = []
-            line_number = 1
-            
-            logger.info(f"CSV headers: {reader.fieldnames}")
-            
-            for row in reader:
-                logger.info(f"Processing row {line_number}: {row}")
-                # Convertir valores numéricos con manejo de errores
-                def safe_decimal(value):
-                    if not value or value.strip() == "":
-                        return None
-                    try:
-                        # Reemplazar coma por punto para decimales
-                        value_clean = str(value).replace(",", ".")
-                        return Decimal(value_clean)
-                    except (InvalidOperation, ValueError):
-                        return None
-                
-                line = InvoiceLineItem(
-                    invoice_parse=invoice_parse,
-                    line_number=line_number,
-                    codigo=row.get("codigo", "")[:50],
-                    cajas=safe_decimal(row.get("cajas")),
-                    uc=safe_decimal(row.get("uc")),
-                    articulo=row.get("articulo", "")[:255],
-                    udes=safe_decimal(row.get("udes")),
-                    unidad=row.get("unidad", "")[:20],
-                    contenedor=row.get("contenedor", "")[:100],
-                    raw_data=row
-                )
-                lines_to_create.append(line)
-                line_number += 1
-            
-            # Crear todas las líneas en una sola operación
-            if lines_to_create:
-                InvoiceLineItem.objects.bulk_create(lines_to_create)
-                logger.info(f"Created {len(lines_to_create)} invoice lines for parse {invoice_parse.id}")
-            else:
-                logger.warning(f"No lines were created from CSV for invoice {invoice_parse.id}")
-        
-        except Exception as e:
-            logger.exception(f"Error parsing CSV lines: {str(e)}")
-            # No lanzar excepción, solo registrar el error
-            # El CSV ya está guardado y puede ser revisado manualmente
+            return Decimal(str(value))
+        except (InvalidOperation, ValueError, TypeError):
+            return None

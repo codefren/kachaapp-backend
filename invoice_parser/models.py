@@ -40,7 +40,7 @@ class InvoiceParse(models.Model):
         verbose_name=_("Estado")
     )
     
-    # Datos extraídos
+    # Datos extraidos
     csv_data = models.TextField(
         blank=True,
         null=True,
@@ -55,11 +55,17 @@ class InvoiceParse(models.Model):
         null=True,
         verbose_name=_("ID de archivo en OpenAI")
     )
-    openai_response = models.JSONField(
+    openai_thread_id = models.CharField(
+        max_length=100,
         blank=True,
         null=True,
-        verbose_name=_("Respuesta de OpenAI"),
-        help_text=_("Respuesta completa de la API de OpenAI")
+        verbose_name=_("ID de thread en OpenAI")
+    )
+    openai_run_id = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name=_("ID de run en OpenAI")
     )
     
     # Información de error
@@ -120,7 +126,7 @@ class InvoiceLineItem(models.Model):
         help_text=_("Orden de la línea en el CSV")
     )
     
-    # Datos de la línea según el formato CSV
+    # Datos de la línea (7 campos requeridos)
     codigo = models.CharField(
         max_length=50,
         blank=True,
@@ -140,13 +146,6 @@ class InvoiceLineItem(models.Model):
         null=True,
         verbose_name=_("UC (Unidades por caja)")
     )
-    iva = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        blank=True,
-        null=True,
-        verbose_name=_("IVA (%)")
-    )
     articulo = models.CharField(
         max_length=255,
         blank=True,
@@ -162,32 +161,13 @@ class InvoiceLineItem(models.Model):
     unidad = models.CharField(
         max_length=20,
         blank=True,
+        null=True,
         verbose_name=_("Unidad")
-    )
-    precio = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        blank=True,
-        null=True,
-        verbose_name=_("Precio sin IVA")
-    )
-    precio_iva = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        blank=True,
-        null=True,
-        verbose_name=_("Precio con IVA")
-    )
-    importe = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        blank=True,
-        null=True,
-        verbose_name=_("Importe total")
     )
     contenedor = models.CharField(
         max_length=100,
         blank=True,
+        null=True,
         verbose_name=_("Contenedor")
     )
     
