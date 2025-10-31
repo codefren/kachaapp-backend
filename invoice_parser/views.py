@@ -95,34 +95,23 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
             logger.info(f"Starting invoice parse {invoice_parse.id} for file: {uploaded_file.name}")
             
             # 1) Subir PDF para assistants (manejo robusto de Django UploadedFile)
-            # El SDK acepta: bytes, io.IOBase, PathLike o tuple (filename, bytes, content_type)
-            # - TemporaryUploadedFile -> usar path o .file (IOBase)
-            # - InMemoryUploadedFile  -> usar .file (IOBase) o BytesIO/tuple
+            # Estrategia: usar path si está disponible, sino usar tupla (filename, bytes, content_type)
             openai_file = None
             try:
-                # Caso 1: TemporaryUploadedFile con path disponible
+                # Caso 1: TemporaryUploadedFile con path disponible (más eficiente)
                 if hasattr(uploaded_file, "temporary_file_path"):
                     path = uploaded_file.temporary_file_path()
                     openai_file = client.files.create(
-                        file=path,                   # PathLike
+                        file=path,
                         purpose="assistants",
                     )
-                # Caso 2: Tenemos .file (IOBase) utilizable
-                elif hasattr(uploaded_file, "file") and hasattr(uploaded_file.file, "read"):
-                    fobj = uploaded_file.file      # io.IOBase (SpooledTemporaryFile)
-                    try:
-                        fobj.seek(0)
-                    except Exception:
-                        pass
-                    openai_file = client.files.create(
-                        file=fobj,                  # IOBase
-                        purpose="assistants",
-                    )
+                    logger.info(f"File uploaded using path: {path}")
                 else:
-                    # Caso 3: Fallback seguro -> tupla (filename, bytes, content_type)
-                    # Usar tupla es más explícito y garantiza que OpenAI detecte la extensión
+                    # Caso 2: InMemoryUploadedFile o cualquier otro - usar tupla
+                    # La tupla (filename, bytes, content_type) es la forma más explícita
+                    # y garantiza que OpenAI detecte correctamente la extensión
                     uploaded_file.seek(0)
-                    data = uploaded_file.read()     # bytes
+                    data = uploaded_file.read()
                     # Asegurar que el filename tenga extensión .pdf
                     filename = uploaded_file.name
                     if not filename.lower().endswith('.pdf'):
@@ -131,6 +120,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                         file=(filename, data, uploaded_file.content_type or "application/pdf"),
                         purpose="assistants",
                     )
+                    logger.info(f"File uploaded using tuple: {filename}")
             except Exception as upload_error:
                 logger.error(f"Error uploading file to OpenAI: {upload_error}")
                 raise Exception(f"Error al subir archivo a OpenAI: {upload_error}")
