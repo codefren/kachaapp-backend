@@ -228,7 +228,8 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 # 4) Ejecutar el Assistant
                 run = client.beta.threads.runs.create(
                     thread_id=thread.id,
-                    assistant_id=assistant.id
+                    assistant_id=assistant.id,
+                    max_completion_tokens=16000  # Permitir respuestas largas (100-120 productos)
                 )
                 
                 # 5) Esperar a que termine (con timeout)
@@ -358,10 +359,18 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                     
                     # Validar que no se haya truncado
                     if len(productos) < 10:
-                        logger.warning(f"Only {len(productos)} products extracted. Verify this is correct.")
+                        logger.warning(f"Only {len(productos)} products extracted. This seems too few!")
                     
-                    # Log del JSON completo para revisar
-                    logger.info(f"Full JSON response: {csv_data[:500]}...")  # Primeros 500 chars
+                    # Verificar si el JSON está completo
+                    if not csv_data.rstrip().endswith("}"):
+                        logger.error(f"JSON appears incomplete! Ends with: ...{csv_data[-50:]}")
+                    else:
+                        logger.info(f"JSON is complete. Total products: {len(productos)}")
+                    
+                    # Log del JSON completo para revisar (primeros y últimos caracteres)
+                    logger.info(f"JSON start: {csv_data[:200]}...")
+                    logger.info(f"JSON end: ...{csv_data[-200:]}")
+                    logger.info(f"Total JSON length: {len(csv_data)} characters")
                     
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse JSON: {e}")

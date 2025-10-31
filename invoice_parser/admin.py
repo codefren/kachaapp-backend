@@ -9,6 +9,7 @@ class InvoiceLineItemInline(admin.TabularInline):
     
     model = InvoiceLineItem
     extra = 0
+    max_num = 0  # Sin límite máximo
     fields = [
         "line_number",
         "codigo",
@@ -16,14 +17,20 @@ class InvoiceLineItemInline(admin.TabularInline):
         "cajas",
         "uc",
         "udes",
-        "precio",
-        "importe",
+        "unidad",
+        "contenedor",
     ]
     readonly_fields = fields
     can_delete = True  # Permitir eliminar líneas desde el inline
+    show_change_link = True  # Mostrar link para ver detalles de cada línea
     
     def has_add_permission(self, request, obj=None):
         return False
+    
+    def get_queryset(self, request):
+        """Obtener todas las líneas sin limitación."""
+        qs = super().get_queryset(request)
+        return qs.order_by('line_number')
 
 
 @admin.register(InvoiceParse)
