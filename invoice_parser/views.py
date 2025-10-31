@@ -4,6 +4,9 @@ import logging
 import json
 import time
 from decimal import Decimal, InvalidOperation
+from io import StringIO
+import csv
+
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
@@ -93,6 +96,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
             
             # 1) Subir PDF para assistants
             uploaded_file.seek(0)  # Volver al inicio
+            # Subir como file-like; el SDK detecta nombre y tipo cuando es posible
             openai_file = client.files.create(
                 file=uploaded_file,
                 purpose="assistants"
@@ -145,7 +149,12 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                     }
                 },
                 tool_choice="none",  # NO usar herramientas
-                max_completion_tokens=16000,
+                # En SDKs recientes este parámetro es max_output_tokens
+                max_output_tokens=16000,
+                metadata={
+                    "invoice_parse_id": str(invoice_parse.id),
+                    "filename": uploaded_file.name,
+                },
             )
             
             logger.info(f"Run created: {run.id}")
@@ -155,6 +164,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
             # 6) Esperar a que termine (con timeout)
             timeout = 300  # 5 minutos
             start_time = time.time()
+            wait = 1.0  # backoff inicial
             
             while True:
                 r = client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
@@ -166,7 +176,8 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                     logger.error("Timeout waiting for OpenAI response")
                     raise Exception("Timeout procesando el PDF")
                 
-                time.sleep(2)
+                time.sleep(wait)
+                wait = min(wait * 1.5, 5.0)  # backoff exponencial suave
             
             if r.status != "completed":
                 logger.error(f"Run failed with status: {r.status}")
@@ -181,11 +192,16 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
             logger.info(f"Received {len(msgs.data)} messages from this run")
             
             # 8) Obtener el último mensaje del assistant de este run
-            assistant_msgs = [m for m in msgs.data if m.role == "assistant"]
+            # Ordenar por created_at para asegurar el más reciente
+            assistant_msgs = sorted(
+                (m for m in msgs.data if m.role == "assistant"),
+                key=lambda m: m.created_at,
+                reverse=True
+            )
             if not assistant_msgs:
                 raise Exception("No se encontró mensaje del assistant para este run")
             
-            # El primer mensaje es el más reciente (list ordena desc)
+            # El primer mensaje es el más reciente
             msg = assistant_msgs[0]
             
             # 9) Extraer texto (JSON puro)
@@ -217,34 +233,33 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 logger.error(f"JSON content preview: {json_text[:500]}")
                 raise Exception(f"Error parseando JSON: {e}")
             
-            # 11) Guardar como CSV (para compatibilidad)
-            csv_lines = ["codigo,cajas,uc,articulo,udes,unidad,contenedor"]
+            # 11) Guardar como CSV (seguro con csv.writer)
+            output = StringIO()
+            writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
+            writer.writerow(["codigo","cajas","uc","articulo","udes","unidad","contenedor"])
             for prod in productos:
-                line = ",".join([
-                    str(prod.get('codigo', '')),
-                    str(prod.get('cajas', '')),
-                    str(prod.get('uc', '')),
-                    str(prod.get('articulo', '')).replace(',', ' '),  # Escapar comas
-                    str(prod.get('udes', '')),
-                    str(prod.get('unidad', '')),
-                    str(prod.get('contenedor', '')),
+                writer.writerow([
+                    prod.get('codigo', ''),
+                    prod.get('cajas', ''),
+                    prod.get('uc', ''),
+                    (prod.get('articulo', '') or '').replace('\n', ' ').strip(),
+                    prod.get('udes', ''),
+                    prod.get('unidad', ''),
+                    prod.get('contenedor', ''),
                 ])
-                csv_lines.append(line)
-            
-            csv_data = "\n".join(csv_lines)
-            
-            logger.info(f"CSV data generated: {len(csv_lines)} lines")
+            csv_data = output.getvalue()
+            logger.info(f"CSV data generated: {len(productos)+1} lines")
             
             # 12) Guardar en BD
             invoice_parse.csv_data = csv_data
             invoice_parse.save(update_fields=["csv_data"])
             
-            # 13) Crear líneas individuales
+            # 13) Crear líneas con bulk_create
             with transaction.atomic():
                 logger.info(f"Starting to create {len(productos)} invoice lines for parse {invoice_parse.id}")
-                
+                items = []
                 for idx, prod in enumerate(productos, start=1):
-                    InvoiceLineItem.objects.create(
+                    items.append(InvoiceLineItem(
                         invoice_parse=invoice_parse,
                         line_number=idx,
                         codigo=str(prod.get('codigo', ''))[:50],
@@ -252,12 +267,12 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                         uc=self._parse_decimal(prod.get('uc')),
                         articulo=str(prod.get('articulo', ''))[:255],
                         udes=self._parse_decimal(prod.get('udes')),
-                        unidad=str(prod.get('unidad', '')) if prod.get('unidad') else None,
-                        contenedor=str(prod.get('contenedor', '')) if prod.get('contenedor') else None,
+                        unidad=str(prod.get('unidad')) if prod.get('unidad') else None,
+                        contenedor=str(prod.get('contenedor')) if prod.get('contenedor') else None,
                         raw_data=prod,
-                    )
-                
-                logger.info(f"Created {len(productos)} invoice lines for parse {invoice_parse.id}")
+                    ))
+                InvoiceLineItem.objects.bulk_create(items, batch_size=1000)
+                logger.info(f"Created {len(items)} invoice lines for parse {invoice_parse.id}")
             
             # 14) Marcar como completado
             invoice_parse.status = InvoiceParse.Status.COMPLETED
@@ -270,6 +285,12 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 logger.info(f"Deleted assistant: {assistant.id}")
             except Exception as e:
                 logger.warning(f"Could not delete assistant: {e}")
+            # Eliminar también el archivo remoto si no se necesita
+            try:
+                client.files.delete(openai_file.id)
+                logger.info(f"Deleted OpenAI file: {openai_file.id}")
+            except Exception as e:
+                logger.warning(f"Could not delete OpenAI file: {e}")
             
             logger.info(f"Invoice parse completed: {invoice_parse.id} with {len(productos)} lines")
             
@@ -289,48 +310,49 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
             )
     
     def _get_parsing_instructions(self, expected_lines):
-        """Genera las instrucciones para el Assistant."""
+        """Genera las instrucciones para el Assistant (JSON estricto + reglas del PDF)."""
         return f"""
 SALIDA JSON (BLOQUEANTE):
 - Devuelve ÚNICAMENTE un JSON válido que empiece con "{{" y termine con "}}".
 - Prohibido texto fuera del JSON, markdown, explicaciones o logs.
-- Prohibido generar cadenas adyacentes: dentro de cualquier campo string NO puede aparecer el patrón: "..."+<espacios>+"..."
-  Si una descripción se partiría así, únelas en una sola cadena con un espacio.
-- Prohibido comillas sin escapar en strings (escapa \\" o usa comilla simple).
+- Prohibido generar **strings adyacentes** en valores string (p. ej., "ROLL." "PAPEL ...").
+  Si la descripción se partiría así, **úne** en una sola cadena con un espacio.
+- Prohibido comillas dobles sin escapar dentro de strings (escapa \" o usa comilla simple).
 
 ALCANCE (PDF ESPECÍFICO):
 - Documento: FACTURA Nº 0098727880 (ref. FR00987278805).
-- Páginas: 4 (procésalas TODAS).
-- Encabezado repetido: "Código Cajas U/C IVA PVP rec. Ofe Artículo Udes./Kg Precio Precio+IVA Importe".
-- Bloques "Contenedor: <id>" agrupan filas siguientes hasta el próximo "Contenedor:".
+- Páginas: **4** (procésalas TODAS, de la primera a la última).
+- Encabezado repetido por página: "Código Cajas U/C IVA PVP rec. Ofe Artículo Udes./Kg Precio Precio+IVA Importe".
+- Existen bloques "Contenedor: <id>" que agrupan filas hasta el siguiente "Contenedor:".
 
 OBJETIVO:
-- Extrae TODAS las líneas de productos ({expected_lines} en total).
-- Devuelve por cada línea EXACTAMENTE estos 7 campos:
+- Extrae **TODAS** las líneas de productos (**{expected_lines}** en total).
+- Por cada línea devuelve **EXACTAMENTE** estas 7 claves y nada más:
   - codigo: string
   - cajas: number|null
   - uc: number|null
   - articulo: string
   - udes: number|null
-  - unidad: string|null (UN, KG, L, ML, G... en mayúsculas, o null)
+  - unidad: string|null   (enum permitido: UN, KG, L, ML, G, o null)
   - contenedor: string|null
 
-REGLAS:
-- "Artículo" puede ser largo/multilínea: devuélvelo como UNA sola cadena.
-- Asigna el último "Contenedor: <id>" visto a cada fila posterior hasta cambiar.
-- Ignora cabeceras, "FALTAS EN EL SERVICIO", SUBTOTAL/IVA/BASES/SUMAS/"Total Factura", notas y pies.
-- No inventes: si un campo no aparece inequívoco, usa null.
-- Normaliza unidades: U/UD/UDS→"UN"; KGS→"KG"; LTS→"L".
-- No calcules udes como cajas*uc; si no está explícito, deja null.
-- Elimina duplicados por saltos de página/cabeceras.
+REGLAS DE PARSING:
+- "Artículo" puede ser largo y/o multilínea: **devuelve UNA única cadena** uniendo continuaciones y sustituyendo saltos de línea por espacio.
+- Asigna el último "Contenedor: <id>" visto a cada fila posterior hasta que aparezca uno nuevo.
+- Ignora cabeceras repetidas, "FALTAS EN EL SERVICIO", SUBTOTAL, IVA/BASES/SUMAS, "Total Factura", notas y pies de página.
+- **No inventes valores**: si un campo no aparece de forma inequívoca, usa **null**.
+- Normaliza unidades: U/UD/UDS→"UN"; KGS→"KG"; LTS→"L". Si no identificable, **null**.
+- **No calcules** "udes" como cajas*uc; si no está explícito en el PDF, deja **null**.
+- Elimina duplicados causados por saltos de página o reimpresión de cabeceras.
 
-CONTROL:
-- Deben salir {expected_lines} objetos en "productos".
-- Tipos correctos: numbers sin comillas; strings UTF-8; null cuando falte.
-- Cada objeto debe tener exactamente las 7 claves pedidas.
+CONTROL DE CALIDAD:
+- Deben salir **{expected_lines}** objetos en "productos".
+- Tipos correctos: numbers sin comillas; strings UTF-8 limpios; null cuando falte.
+- Cada objeto debe contener **exactamente 7 claves**: ["codigo","cajas","uc","articulo","udes","unidad","contenedor"].
+- Verifica que "articulo" no sea encabezado, total o nota.
 
-RESPUESTA FINAL (ÚNICA):
-{{"productos":[ ... {expected_lines} objetos ... ]}}
+RESPUESTA FINAL (ÚNICA Y ESTRICTA):
+{{"productos":[ /* {expected_lines} objetos válidos */ ]}}
 """.strip()
     
     def _get_json_schema(self, expected_lines):
@@ -352,7 +374,7 @@ RESPUESTA FINAL (ÚNICA):
                             "uc": {"type": ["number", "null"]},
                             "articulo": {"type": "string"},
                             "udes": {"type": ["number", "null"]},
-                            "unidad": {"type": ["string", "null"]},
+                            "unidad": {"type": ["string", "null"], "enum": ["UN","KG","L","ML","G", None]},
                             "contenedor": {"type": ["string", "null"]},
                         },
                     },
