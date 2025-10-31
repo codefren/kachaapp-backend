@@ -5,6 +5,7 @@ import os
 import tempfile
 import csv
 import io
+import base64
 from decimal import Decimal, InvalidOperation
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets
@@ -126,48 +127,65 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 invoice_parse.openai_file_id = file.id
                 invoice_parse.save(update_fields=["openai_file_id"])
                 
-                # 2) Pedir a GPT que extraiga las tablas como CSV
-                response = client.responses.create(
+                # 2) Pedir a GPT-4 Vision que extraiga las tablas como CSV
+                # Leer el PDF como bytes para enviarlo
+                with open(tmp_path, "rb") as pdf_file:
+                    pdf_bytes = pdf_file.read()
+                    pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+                
+                response = client.chat.completions.create(
                     model="gpt-4o",
-                    input=[
+                    messages=[
                         {
                             "role": "user",
                             "content": [
                                 {
-                                    "type": "input_text",
+                                    "type": "text",
                                     "text": (
-                                        "Eres un extractor de líneas de factura. Devuélveme SOLO un CSV válido con encabezados:\n"
+                                        "Eres un extractor de líneas de factura. Analiza este PDF y devuélveme SOLO un CSV válido con estos encabezados:\n"
                                         "codigo,cajas,uc,iva,articulo,udes,unidad,precio,precio_iva,importe,contenedor\n"
                                         "\n"
-                                        "- Si hay varios 'Contenedor:', incluye la columna 'contenedor' para cada línea.\n"
-                                        "- Corrige separadores decimales a punto.\n"
-                                        "- No incluyas notas ni texto adicional fuera del CSV."
+                                        "Instrucciones:\n"
+                                        "- Extrae TODAS las líneas de productos de la factura\n"
+                                        "- Si hay varios 'Contenedor:', incluye la columna 'contenedor' para cada línea\n"
+                                        "- Usa punto (.) como separador decimal, no coma\n"
+                                        "- No incluyas texto adicional, solo el CSV\n"
+                                        "- Primera línea debe ser el encabezado\n"
+                                        "- Cada línea posterior es un producto"
                                     )
                                 },
                                 {
-                                    "type": "input_file",
-                                    "file_id": file.id
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:application/pdf;base64,{pdf_base64}"
+                                    }
                                 }
                             ]
                         }
-                    ]
+                    ],
+                    max_tokens=4096
                 )
                 
-                # 3) Extraer el texto (CSV) de la respuesta
+                # 3) Extraer el CSV de la respuesta
                 csv_data = ""
-                if hasattr(response, "output_text") and response.output_text:
-                    csv_data = response.output_text
-                elif hasattr(response, "output") and response.output:
-                    # Navegar por la estructura de salida
-                    output = response.output
-                    if isinstance(output, list) and len(output) > 0:
-                        first_output = output[0]
-                        if hasattr(first_output, "content") and first_output.content:
-                            content = first_output.content
-                            if isinstance(content, list) and len(content) > 0:
-                                first_content = content[0]
-                                if hasattr(first_content, "text"):
-                                    csv_data = first_content.text
+                if response.choices and len(response.choices) > 0:
+                    message = response.choices[0].message
+                    if message.content:
+                        csv_data = message.content.strip()
+                        
+                        # Limpiar el CSV si viene con marcadores de código
+                        if csv_data.startswith("```"):
+                            # Remover bloques de código markdown
+                            lines = csv_data.split("\n")
+                            csv_lines = []
+                            in_code_block = False
+                            for line in lines:
+                                if line.startswith("```"):
+                                    in_code_block = not in_code_block
+                                    continue
+                                if not in_code_block:
+                                    csv_lines.append(line)
+                            csv_data = "\n".join(csv_lines).strip()
                 
                 if not csv_data:
                     logger.error("Could not extract CSV from OpenAI response")
