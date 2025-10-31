@@ -131,75 +131,56 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 
                 # 2) Crear un Assistant para extraer los datos en JSON
                 assistant = client.beta.assistants.create(
-                    name="Invoice Parser — FACTURA",
+                    name="Invoice Parser — FACTURA (JSON estricto)",
                     instructions=(
-                        "SALIDA ESTRICTA:\n"
-                        "- Devuelve ÚNICAMENTE un JSON válido que comience con '{' y termine con '}'.\n"
-                        "- NO incluyas markdown, comentarios, ni texto antes/después. Si estás a punto de escribir otra cosa que no sea JSON, DETÉNTE.\n"
-                        "- NO escribas 'Para continuar...', 'Parece que...', ni ningún texto explicativo. SOLO JSON.\n\n"
+                        "SALIDA JSON (BLOQUEANTE):\n"
+                        "- Devuelve ÚNICAMENTE un JSON válido que empiece con '{' y termine con '}'.\n"
+                        "- Prohibido texto fuera del JSON, markdown, explicaciones o logs.\n"
+                        "- Prohibido generar cadenas adyacentes: dentro de cualquier campo string NO puede aparecer el patrón: \"...\"+<espacios>+\"…\"\n"
+                        "  Si detectas que una descripción se partiría así, únelas en una sola cadena con un espacio.\n"
+                        "- Prohibido comillas sin escapar dentro de strings. Si aparece una comilla doble en la descripción, reemplázala por comilla simple o escápala con \\.\n\n"
                         
                         "ALCANCE (PDF ESPECÍFICO):\n"
-                        "- Documento: FACTURA (referencia FR00987278805).\n"
-                        "- Páginas: 4 (procesa TODAS).\n"
-                        "- Encabezado de tabla repetido: 'Código Cajas U/C IVA PVP rec. Ofe Artículo Udes./Kg Precio Precio+IVA Importe'.\n"
+                        "- Documento: FACTURA Nº 0098727880 (ref. FR00987278805).\n"
+                        "- Páginas: 4 (procésalas TODAS).\n"
+                        "- Encabezado de tabla (repetido): 'Código Cajas U/C IVA PVP rec. Ofe Artículo Udes./Kg Precio Precio+IVA Importe'.\n"
                         "- Existen bloques 'Contenedor: <id>' que agrupan líneas siguientes hasta el próximo 'Contenedor:'.\n\n"
                         
                         "OBJETIVO:\n"
-                        "- Extrae TODAS las líneas de productos (son aproximadamente 100-120; no te detengas antes).\n"
+                        "- Extrae TODAS las líneas de productos (118 en total).\n"
+                        "- Devuelve por cada línea EXACTAMENTE estos 7 campos:\n"
+                        "  - codigo: string\n"
+                        "  - cajas: number|null\n"
+                        "  - uc: number|null\n"
+                        "  - articulo: string\n"
+                        "  - udes: number|null\n"
+                        "  - unidad: string|null (UN, KG, L, ML, G... en mayúsculas, o null)\n"
+                        "  - contenedor: string|null\n\n"
                         
-                        "ESTRUCTURA ESPECÍFICA DE ESTE PDF:\n"
-                        "- Encabezado de la tabla (se repite por página): 'Código Cajas U/C IVA PVP rec. Ofe Artículo Udes./Kg Precio Precio+IVA Importe'.\n"
-                        "- Los productos aparecen bajo ese encabezado.\n"
-                        "- Hay bloques que empiezan con 'Contenedor:    <id_numérico>' y luego varias líneas de productos pertenecen a ese contenedor hasta que aparezca un nuevo 'Contenedor:'.\n"
-                        "- También hay secciones NO productivas: 'FALTAS EN EL SERVICIO', 'Subtotal', 'IVA BASES', 'SUMAS', 'Total Factura', etc. Debes ignorarlas por completo.\n\n"
+                        "PARSING (REGLAS DE ESTE PDF):\n"
+                        "- Las filas válidas están bajo el encabezado. 'Artículo' puede ser largo y/o multilínea; une el texto en UNA sola cadena.\n"
+                        "- Si ves texto tipo abreviatura seguida de punto (ej. 'ROLL.'), NUNCA cierres y reabras comillas: mantén 'articulo' como una sola cadena: 'ROLL. PAPEL ...'.\n"
+                        "- Asigna el último 'Contenedor: <id>' visto a cada fila posterior hasta que cambie.\n"
+                        "- Ignora: cabeceras repetidas, 'FALTAS EN EL SERVICIO', SUBTOTAL, IVA/BASES/SUMAS, 'Total Factura', notas y pies de página.\n"
+                        "- No inventes datos: si un campo no aparece de forma inequívoca, pon null.\n"
+                        "- Normaliza unidades: U/UD/UDS→'UN'; KGS→'KG'; LTS→'L'.\n"
+                        "- No calcules 'udes' como cajas*uc; si no está explícito, deja null.\n"
+                        "- Elimina duplicados causados por saltos de página y cabeceras.\n\n"
                         
-                        "PÁGINAS A PROCESAR:\n"
-                        "- El documento tiene 4 páginas. Lee y procesa **todas**, uniendo tablas que continúan en la siguiente página y eliminando cabeceras repetidas.\n\n"
+                        "SANITIZACIÓN DE STRINGS:\n"
+                        "- Recorta espacios extremos.\n"
+                        "- Sustituye saltos de línea internos de 'articulo' por un solo espacio.\n"
+                        "- Prohibido incluir comillas dobles sin escapar; si existen en la fuente, usa comilla simple.\n"
+                        "- Asegura que 'articulo' sea UNA única cadena JSON (sin concatenar dos strings).\n\n"
                         
-                        "¿QUÉ ES UNA LÍNEA DE PRODUCTO AQUÍ?\n"
-                        "- Patrón típico por línea (campos de la factura, algunos no los extraerás):\n"
-                        "  Código | Cajas | U/C | IVA | PVP | rec. | Ofe | Artículo | Udes./Kg | Precio | Precio+IVA | Importe\n"
-                        "- Ejemplo real (solo ilustrativo):\n"
-                        "  5921 1 6 21% 0,96 AGUA MICAL DESTILADA 2L 6 UN 0,67 0,81 4,02\n"
-                        "- Observa que 'Artículo' puede contener espacios, abreviaturas y números dentro de la descripción.\n\n"
+                        "CONTROL DE CALIDAD:\n"
+                        "- Deben salir **118** objetos en 'productos'.\n"
+                        "- Tipos correctos: numbers sin comillas; strings UTF-8; null cuando falte.\n"
+                        "- Cada objeto debe tener **exactamente** las 7 claves pedidas (ni más ni menos).\n"
+                        "- Verifica que 'articulo' no sea un encabezado, total o nota.\n\n"
                         
-                        "CAMPOS QUE DEBES DEVOLVER POR CADA LÍNEA:\n"
-                        "- codigo: string (valor exacto del campo 'Código', sin espacios extras)\n"
-                        "- cajas: number o null (desde 'Cajas')\n"
-                        "- uc: number o null (desde 'U/C')\n"
-                        "- articulo: string (desde 'Artículo'; si se parte en varias líneas, únelas correctamente)\n"
-                        "- udes: number o null (desde 'Udes./Kg', solo el número; NO copies 'UN' ni 'KG')\n"
-                        "- unidad: string o null (normaliza a mayúsculas; ejemplos: UN, KG, L; si no hay, null)\n"
-                        "- contenedor: string o null (último 'Contenedor: <id>' visto antes de la línea; propágalo a todas las filas hasta que cambie)\n\n"
-                        
-                        "REGLAS DE PARSING Y NORMALIZACIÓN:\n"
-                        "- Une descripciones partidas (wrap) del campo 'Artículo' hasta encontrar el bloque 'Udes./Kg' y su unidad ('UN', 'KG', 'L', etc.).\n"
-                        "- Los precios/IVA/PVP/rec./Ofe **NO** se devuelven; solo usa esos tokens como anclas para ubicar columnas. Ignora cualquier símbolo como '+' en precios (p. ej., '0,65 + 0,79').\n"
-                        "- Quita separadores de miles y convierte comas decimales a punto si necesitas interpretar números, pero **solo** para cajas, uc, udes (los demás precios no se devuelven).\n"
-                        "- Normaliza unidades frecuentes: U, UD, UDS → 'UN'; KGS → 'KG'; LTS → 'L'. Si no identificable, deja unidad en null.\n"
-                        "- Si un campo no está presente o es ambiguo, usa null (no inventes).\n"
-                        "- Deduplica cabeceras repetidas por página y descarta líneas que no sean productos (totales, observaciones, páginas, teléfonos, direcciones, etc.).\n"
-                        "- Descarta por completo la sección 'FALTAS EN EL SERVICIO' y cualquier línea debajo de ese bloque que no siga el patrón de producto.\n\n"
-                        
-                        "DETECCIÓN DE CONTENEDOR:\n"
-                        "- Cada vez que aparezca 'Contenedor:    <id>' guarda ese <id> y asígnalo a todas las líneas de producto siguientes hasta que surja un nuevo 'Contenedor:' o termine la tabla/página.\n"
-                        "- Si alguna línea de producto aparece antes del primer contenedor visible en la página, deja contenedor en null para esa(s) línea(s).\n\n"
-                        
-                        "CONTROL DE CALIDAD (ANTES DE RESPONDER):\n"
-                        "- Asegura que el número de líneas extraídas corresponde a todas las filas de la tabla a lo largo de las 4 páginas (no te detengas tras las primeras).\n"
-                        "- Verifica tipos: numeros como number; ausentes como null; strings en UTF-8; unidad en mayúsculas o null.\n"
-                        "- Elimina duplicados por cambio de página o por reimpresión de cabeceras.\n"
-                        "- articulo no debe ser una palabra de totales ni títulos de sección.\n\n"
-                        
-                        "FORMATO DE RESPUESTA (ESTRICTO):\n"
-                        "- Responde **únicamente** con JSON puro (sin comentarios ni texto extra).\n"
-                        "- Estructura final: {\"productos\": [ ... ]}\n\n"
-                        
-                        "EJEMPLO DE RESPUESTA (solo formato; NO son los datos reales del PDF):\n"
-                        '{"productos": ['
-                        '{"codigo": "5921", "cajas": 1, "uc": 6, "articulo": "AGUA MICAL DESTILADA 2L", "udes": 6, "unidad": "UN", "contenedor": "284130801096506780"}, '
-                        '{"codigo": "30047", "cajas": 20, "uc": 6, "articulo": "AGUA BEZOYA 1,5L", "udes": 120, "unidad": "UN", "contenedor": "284130801096514969"}'
-                        ']}'
+                        "RESPUESTA FINAL (ÚNICA):\n"
+                        '{"productos":[ ... 118 objetos ... ]}'
                     ),
                     model="gpt-4o",
                     response_format={"type": "json_object"}  # Forzar respuesta en JSON puro
@@ -351,7 +332,13 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR
                     )
                 
-                # 4) Parsear JSON y contar productos
+                # 4) Limpiar JSON de strings duplicados (error comun del modelo)
+                # Reemplazar patrones como articulo:ROLL. PAPEL con articulo:ROLL. PAPEL
+                import re
+                csv_data = re.sub(r'"\s+"', ' ', csv_data)
+                logger.info("Applied JSON cleanup for duplicate strings")
+                
+                # 5) Parsear JSON y contar productos
                 try:
                     data = json.loads(csv_data)
                     productos = data.get("productos", [])
