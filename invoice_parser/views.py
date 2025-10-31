@@ -133,8 +133,19 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 assistant = client.beta.assistants.create(
                     name="Invoice Parser — FACTURA",
                     instructions=(
-                        "TAREA CRÍTICA (BLOQUEANTE):\n"
-                        "Debes extraer TODAS las líneas de productos de la factura (PDF de 4 páginas) y devolverlas en un JSON. No omitas ninguna línea ni limites el conteo.\n\n"
+                        "SALIDA ESTRICTA:\n"
+                        "- Devuelve ÚNICAMENTE un JSON válido que comience con '{' y termine con '}'.\n"
+                        "- NO incluyas markdown, comentarios, ni texto antes/después. Si estás a punto de escribir otra cosa que no sea JSON, DETÉNTE.\n"
+                        "- NO escribas 'Para continuar...', 'Parece que...', ni ningún texto explicativo. SOLO JSON.\n\n"
+                        
+                        "ALCANCE (PDF ESPECÍFICO):\n"
+                        "- Documento: FACTURA (referencia FR00987278805).\n"
+                        "- Páginas: 4 (procesa TODAS).\n"
+                        "- Encabezado de tabla repetido: 'Código Cajas U/C IVA PVP rec. Ofe Artículo Udes./Kg Precio Precio+IVA Importe'.\n"
+                        "- Existen bloques 'Contenedor: <id>' que agrupan líneas siguientes hasta el próximo 'Contenedor:'.\n\n"
+                        
+                        "OBJETIVO:\n"
+                        "- Extrae TODAS las líneas de productos (son aproximadamente 100-120; no te detengas antes).\n"
                         
                         "ESTRUCTURA ESPECÍFICA DE ESTE PDF:\n"
                         "- Encabezado de la tabla (se repite por página): 'Código Cajas U/C IVA PVP rec. Ofe Artículo Udes./Kg Precio Precio+IVA Importe'.\n"
@@ -191,7 +202,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                         ']}'
                     ),
                     model="gpt-4o",
-                    tools=[{"type": "code_interpreter"}]
+                    response_format={"type": "json_object"}  # Forzar respuesta en JSON puro
                 )
                 
                 # 3) Crear un Thread y enviar el mensaje con el archivo
@@ -206,8 +217,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                             ),
                             "attachments": [
                                 {
-                                    "file_id": file.id,
-                                    "tools": [{"type": "code_interpreter"}]
+                                    "file_id": file.id
                                 }
                             ]
                         }
@@ -247,20 +257,31 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 
                 logger.info(f"Received {len(messages.data)} messages from thread")
                 
-                # Buscar el mensaje del assistant
+                # Buscar el ÚLTIMO mensaje del assistant que contenga JSON
+                # (ignorar mensajes de conversación intermedios)
                 csv_data = ""
+                assistant_messages = []
+                
                 for idx, message in enumerate(messages.data):
                     logger.info(f"Message {idx}: role={message.role}, content_count={len(message.content)}")
                     if message.role == "assistant":
-                        for content_idx, content in enumerate(message.content):
-                            logger.info(f"Content {content_idx}: type={type(content).__name__}, has_text={hasattr(content, 'text')}")
+                        for content in message.content:
                             if hasattr(content, "text"):
-                                csv_data = content.text.value
-                                logger.info(f"Extracted CSV data length: {len(csv_data)}")
-                                logger.debug(f"CSV data preview: {csv_data[:200]}...")
-                                break
-                        if csv_data:
-                            break
+                                text = content.text.value
+                                assistant_messages.append((idx, text))
+                                logger.info(f"Assistant message {idx} length: {len(text)}, starts with: {text[:50]}...")
+                
+                # Buscar el mensaje que contenga JSON (el que empiece con { o contenga "productos")
+                for idx, text in reversed(assistant_messages):  # Empezar por el último
+                    if "{" in text and "productos" in text:
+                        csv_data = text
+                        logger.info(f"Using message {idx} as JSON source (length: {len(csv_data)})")
+                        break
+                
+                # Si no encontramos ningún mensaje con JSON, usar el último mensaje del assistant
+                if not csv_data and assistant_messages:
+                    csv_data = assistant_messages[-1][1]
+                    logger.warning(f"No JSON-like message found, using last assistant message")
                 
                 # 7) Limpiar recursos
                 try:
@@ -268,7 +289,18 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 except Exception as e:
                     logger.warning(f"Could not delete assistant: {e}")
                 
-                # 8) Limpiar el JSON si viene con marcadores de código o texto explicativo
+                # 8) Verificar si el JSON está truncado
+                if csv_data and (csv_data.endswith("...") or csv_data.endswith("...\n")):
+                    logger.error("JSON response appears to be truncated (ends with ...)")
+                    invoice_parse.status = InvoiceParse.Status.FAILED
+                    invoice_parse.error_message = "Respuesta truncada del modelo. Intenta de nuevo."
+                    invoice_parse.save()
+                    return Response(
+                        {"detail": "Respuesta truncada del modelo. Intenta de nuevo."},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+                
+                # 9) Limpiar el JSON si viene con marcadores de código o texto explicativo
                 json_data = csv_data  # Renombrar para claridad
                 
                 # Remover bloques de código markdown si existen
