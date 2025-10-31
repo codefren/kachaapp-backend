@@ -144,7 +144,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                         "- Cada línea posterior es un producto"
                     ),
                     model="gpt-4o",
-                    tools=[{"type": "file_search"}]
+                    tools=[{"type": "code_interpreter"}]
                 )
                 
                 # 3) Crear un Thread y enviar el mensaje con el archivo
@@ -156,7 +156,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                             "attachments": [
                                 {
                                     "file_id": file.id,
-                                    "tools": [{"type": "file_search"}]
+                                    "tools": [{"type": "code_interpreter"}]
                                 }
                             ]
                         }
@@ -194,13 +194,19 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                     order="asc"
                 )
                 
+                logger.info(f"Received {len(messages.data)} messages from thread")
+                
                 # Buscar el mensaje del assistant
                 csv_data = ""
-                for message in messages.data:
+                for idx, message in enumerate(messages.data):
+                    logger.info(f"Message {idx}: role={message.role}, content_count={len(message.content)}")
                     if message.role == "assistant":
-                        for content in message.content:
+                        for content_idx, content in enumerate(message.content):
+                            logger.info(f"Content {content_idx}: type={type(content).__name__}, has_text={hasattr(content, 'text')}")
                             if hasattr(content, "text"):
                                 csv_data = content.text.value
+                                logger.info(f"Extracted CSV data length: {len(csv_data)}")
+                                logger.debug(f"CSV data preview: {csv_data[:200]}...")
                                 break
                         if csv_data:
                             break
@@ -226,7 +232,12 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                     csv_data = "\n".join(csv_lines).strip()
                 
                 if not csv_data:
-                    logger.error("Could not extract CSV from OpenAI response")
+                    error_detail = f"Could not extract CSV from OpenAI response. Messages count: {len(messages.data)}"
+                    logger.error(error_detail)
+                    # Log completo de los mensajes para debugging
+                    for idx, msg in enumerate(messages.data):
+                        logger.error(f"Full message {idx}: {msg}")
+                    
                     invoice_parse.status = InvoiceParse.Status.FAILED
                     invoice_parse.error_message = "No se pudo extraer CSV del modelo."
                     invoice_parse.save()
