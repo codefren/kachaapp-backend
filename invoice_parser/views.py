@@ -133,28 +133,34 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 assistant = client.beta.assistants.create(
                     name="Invoice Parser",
                     instructions=(
-                        "Tu respuesta debe ser SOLO un JSON válido. No escribas NADA más.\n\n"
-                        "PROHIBIDO:\n"
-                        "- NO escribas explicaciones\n"
-                        "- NO escribas código Python\n"
-                        "- NO uses bloques de código markdown\n"
-                        "- NO escribas texto antes o después del JSON\n\n"
-                        "FORMATO OBLIGATORIO:\n"
-                        "Devuelve un JSON con una clave 'productos' que contiene un array de objetos.\n"
-                        "Cada objeto debe tener estas propiedades:\n"
-                        "- codigo: Código del producto (string)\n"
-                        "- cajas: Número de cajas (number o null)\n"
-                        "- uc: Unidades por caja (number o null)\n"
-                        "- articulo: Nombre del producto (string)\n"
-                        "- udes: Unidades totales (number o null)\n"
-                        "- unidad: Tipo de unidad como kg, ud (string)\n"
-                        "- contenedor: Nombre/número del contenedor (string)\n\n"
-                        "IMPORTANTE: Extrae TODAS las líneas de productos del PDF.\n\n"
-                        "EJEMPLO DE RESPUESTA VÁLIDA:\n"
+                        "TAREA CRÍTICA: Debes extraer TODAS las líneas de productos del PDF, sin omitir ninguna.\n\n"
+                        "PROCESO OBLIGATORIO:\n"
+                        "1. Lee el PDF COMPLETAMENTE desde la primera hasta la última página\n"
+                        "2. Identifica TODAS las líneas de productos (pueden ser 5, 50, 100 o más)\n"
+                        "3. Extrae cada línea con estos datos: codigo, cajas, uc, articulo, udes, unidad, contenedor\n"
+                        "4. Devuelve un JSON con TODOS los productos encontrados\n\n"
+                        "ADVERTENCIAS:\n"
+                        "- El PDF puede tener múltiples páginas: lee TODAS\n"
+                        "- NO te detengas después de los primeros productos\n"
+                        "- NO limites el número de productos extraidos\n"
+                        "- Si ves 'continua en página siguiente', sigue leyendo\n\n"
+                        "FORMATO DE RESPUESTA:\n"
+                        "JSON puro sin explicaciones: {\"productos\": [...]}\n\n"
+                        "Cada producto debe tener:\n"
+                        "- codigo: string\n"
+                        "- cajas: number o null\n"
+                        "- uc: number o null\n"
+                        "- articulo: string\n"
+                        "- udes: number o null\n"
+                        "- unidad: string (kg, ud, etc)\n"
+                        "- contenedor: string\n\n"
+                        "EJEMPLO (con 3 productos, pero tú debes extraer TODOS los que encuentres):\n"
                         '{"productos": ['
-                        '{"codigo": "12345", "cajas": 10, "uc": 5, "articulo": "TOMATE CHERRY", "udes": 50, "unidad": "kg", "contenedor": "CONT-001"}, '
-                        '{"codigo": "67890", "cajas": 5, "uc": 10, "articulo": "LECHUGA ROMANA", "udes": 50, "unidad": "ud", "contenedor": "CONT-001"}'
-                        ']}'
+                        '{"codigo": "5921", "cajas": 1, "uc": 6, "articulo": "AGUA MICAL", "udes": 6, "unidad": "UN", "contenedor": "CONT-001"}, '
+                        '{"codigo": "6345", "cajas": 1, "uc": 3, "articulo": "LEJIA MICAL", "udes": 3, "unidad": "UN", "contenedor": "CONT-001"}, '
+                        '{"codigo": "7120", "cajas": 1, "uc": 12, "articulo": "QUITAMANCHAS", "udes": 12, "unidad": "UN", "contenedor": "CONT-001"}'
+                        ']}\n\n'
+                        "RECUERDA: Tu respuesta SOLO debe ser el JSON. NO escribas nada más."
                     ),
                     model="gpt-4o",
                     tools=[{"type": "code_interpreter"}]
@@ -165,7 +171,11 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                     messages=[
                         {
                             "role": "user",
-                            "content": "Extrae todos los productos de este PDF y devuelve SOLO el JSON. No escribas explicaciones.",
+                            "content": (
+                                "Lee TODO el PDF desde la primera hasta la última página. "
+                                "Extrae TODAS las líneas de productos (pueden ser muchas). "
+                                "Devuelve SOLO el JSON con todos los productos, sin explicaciones."
+                            ),
                             "attachments": [
                                 {
                                     "file_id": file.id,
@@ -183,7 +193,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 )
                 
                 # 5) Esperar a que termine (con timeout)
-                timeout = 180  # 180 segundos (3 minutos)
+                timeout = 180  # 180 segundos (3 minutos para PDFs grandes)
                 start_time = time.time()
                 
                 while run.status in ["queued", "in_progress"]:
@@ -283,6 +293,14 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                     data = json.loads(csv_data)
                     productos = data.get("productos", [])
                     logger.info(f"JSON parsed successfully with {len(productos)} products")
+                    
+                    # Validar que no se haya truncado
+                    if len(productos) < 10:
+                        logger.warning(f"Only {len(productos)} products extracted. Verify this is correct.")
+                    
+                    # Log del JSON completo para revisar
+                    logger.info(f"Full JSON response: {csv_data[:500]}...")  # Primeros 500 chars
+                    
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse JSON: {e}")
                     logger.error(f"JSON content: {csv_data}")
