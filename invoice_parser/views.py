@@ -133,34 +133,64 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 assistant = client.beta.assistants.create(
                     name="Invoice Parser",
                     instructions=(
-                        "TAREA CRÍTICA: Debes extraer TODAS las líneas de productos del PDF, sin omitir ninguna.\n\n"
-                        "PROCESO OBLIGATORIO:\n"
-                        "1. Lee el PDF COMPLETAMENTE desde la primera hasta la última página\n"
-                        "2. Identifica TODAS las líneas de productos (pueden ser 5, 50, 100 o más)\n"
-                        "3. Extrae cada línea con estos datos: codigo, cajas, uc, articulo, udes, unidad, contenedor\n"
-                        "4. Devuelve un JSON con TODOS los productos encontrados\n\n"
-                        "ADVERTENCIAS:\n"
-                        "- El PDF puede tener múltiples páginas: lee TODAS\n"
-                        "- NO te detengas después de los primeros productos\n"
-                        "- NO limites el número de productos extraidos\n"
-                        "- Si ves 'continua en página siguiente', sigue leyendo\n\n"
-                        "FORMATO DE RESPUESTA:\n"
-                        "JSON puro sin explicaciones: {\"productos\": [...]}\n\n"
-                        "Cada producto debe tener:\n"
-                        "- codigo: string\n"
-                        "- cajas: number o null\n"
-                        "- uc: number o null\n"
-                        "- articulo: string\n"
-                        "- udes: number o null\n"
-                        "- unidad: string (kg, ud, etc)\n"
-                        "- contenedor: string\n\n"
-                        "EJEMPLO (con 3 productos, pero tú debes extraer TODOS los que encuentres):\n"
+                        "TAREA CRÍTICA (BLOQUEANTE):\n"
+                        "Debes extraer TODAS las líneas de productos del PDF, sin omitir ninguna, recorriendo las 3 páginas completas.\n\n"
+                        
+                        "REGLAS DE LECTURA (OBLIGATORIAS):\n"
+                        "1) Lee el PDF COMPLETAMENTE desde la primera hasta la última página (el documento tiene 3 páginas).\n"
+                        "2) Identifica TODAS las líneas de productos. Pueden ser 5, 50, 100 o más.\n"
+                        "3) Considera que las líneas pueden:\n"
+                        "   - Estar en tablas con columnas (código, cajas, UC, artículo, UDES, unidad, contenedor).\n"
+                        "   - Romperse en varias líneas (descripción/artículo multilínea, 'continúa en página siguiente').\n"
+                        "   - Tener encabezados/repeticiones por página.\n"
+                        "4) Une correctamente líneas partidas (wrap) y las que declaran 'continúa en página siguiente'. No dupliques ni pierdas filas.\n"
+                        "5) Ignora por completo filas de totales, subtotales, impuestos, notas, disclaimers, cabeceras, pies de página y números de página.\n"
+                        "   Palabras clave a ignorar: TOTAL, SUBTOTAL, IVA, TAX, IMPUESTO, BASE, DESCUENTO, ENVÍO, TRANSPORTE, FREIGHT, SUMA, PÁGINA, PAGE, OBSERVACIONES, NOTAS.\n"
+                        "6) Si un campo no está presente o no se puede derivar sin ambigüedad, usa null (NO inventes).\n\n"
+                        
+                        "CAMPOS REQUERIDOS POR LÍNEA:\n"
+                        "- codigo: string (exactamente como aparece; quitar espacios sobrantes)\n"
+                        "- cajas: number o null (si aparece como entero/decimal; si viene como texto no numérico => null)\n"
+                        "- uc: number o null (unidades por caja; si no está claro => null)\n"
+                        "- articulo: string (descripción limpia, uniendo continuaciones y eliminando saltos de línea internos)\n"
+                        "- udes: number o null (cantidad total de unidades; si no está claro => null)\n"
+                        "- unidad: string (por ejemplo: UN, UD, UDS, KG, L, ML; normaliza a mayúsculas; si no hay => null)\n"
+                        "- contenedor: string (identificador del contenedor, pallet o referencia logística si aparece; si no => null)\n\n"
+                        
+                        "NORMALIZACIÓN Y PARSING:\n"
+                        "- Elimina separadores de miles ('.' o ',') y respeta el separador decimal local (convierte a punto para número).\n"
+                        "- Permite números con coma o punto decimal (p. ej., '1,00' => 1.0).\n"
+                        "- Recorta espacios al inicio/fin en todos los strings.\n"
+                        "- Para 'unidad', mapea variantes comunes (U, UN, UD, UDS => 'UN'; KGS => 'KG'; LTS => 'L').\n"
+                        "- Si 'udes' falta pero están presentes 'cajas' y 'uc' y la factura suele implicar udes = cajas * uc, NO calcules: deja udes en null (no asumas).\n\n"
+                        
+                        "DETECCIÓN DE FILAS:\n"
+                        "- Prioriza estructuras tabulares (líneas con varias columnas alineadas).\n"
+                        "- Si hay columnas visibles, reconoce su posición por consistencia de alineación.\n"
+                        "- Si 'contenedor' aparece en bloques aparte o encabezando un grupo, propágalo a las filas siguientes hasta que cambie o termine el grupo.\n\n"
+                        
+                        "CONTROL DE CALIDAD (ANTES DE RESPONDER):\n"
+                        "- El conteo de filas debe ser >= al de todas las líneas de productos detectadas en las 3 páginas (no te detengas tras las primeras).\n"
+                        "- Elimina duplicados causados por cabeceras repetidas o reimpresiones de tabla.\n"
+                        "- Verifica que 'articulo' NO sea una palabra de totales ni un encabezado.\n"
+                        "- Asegura tipos correctos: numeros como number, ausentes como null, strings en UTF-8 limpio.\n"
+                        "- Si una fila tiene solo 'articulo' pero carece de todo lo demás y no forma parte de una continuación válida, descártala.\n\n"
+                        
+                        "FORMATO DE RESPUESTA (ESTRICTO):\n"
+                        "- Responde **únicamente** con JSON puro, sin explicaciones, sin comentarios, sin texto adicional.\n"
+                        "- Estructura final: {\"productos\": [ ... ]}\n\n"
+                        
+                        "EJEMPLO (ilustrativo; TÚ debes extraer TODOS los productos reales del PDF):\n"
                         '{"productos": ['
                         '{"codigo": "5921", "cajas": 1, "uc": 6, "articulo": "AGUA MICAL", "udes": 6, "unidad": "UN", "contenedor": "CONT-001"}, '
                         '{"codigo": "6345", "cajas": 1, "uc": 3, "articulo": "LEJIA MICAL", "udes": 3, "unidad": "UN", "contenedor": "CONT-001"}, '
                         '{"codigo": "7120", "cajas": 1, "uc": 12, "articulo": "QUITAMANCHAS", "udes": 12, "unidad": "UN", "contenedor": "CONT-001"}'
                         ']}\n\n'
-                        "RECUERDA: Tu respuesta SOLO debe ser el JSON. NO escribas nada más."
+                        
+                        "RECORDATORIOS FINALES:\n"
+                        "- El PDF tiene 3 páginas: procesa TODAS.\n"
+                        "- NO limites el número de filas.\n"
+                        "- NO incluyas nada que no sea el JSON con 'productos'."
                     ),
                     model="gpt-4o",
                     tools=[{"type": "code_interpreter"}]
