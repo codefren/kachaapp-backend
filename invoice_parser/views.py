@@ -217,7 +217,8 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                             ),
                             "attachments": [
                                 {
-                                    "file_id": file.id
+                                    "file_id": file.id,
+                                    "tools": [{"type": "file_search"}]  # file_search en lugar de code_interpreter
                                 }
                             ]
                         }
