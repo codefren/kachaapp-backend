@@ -272,17 +272,18 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 json_data = csv_data  # Renombrar para claridad
                 
                 # Remover bloques de código markdown si existen
-                if json_data.startswith("```"):
+                if "```" in json_data:
+                    # Remover líneas que solo contienen ``` o ```json
                     lines = json_data.split("\n")
                     json_lines = []
-                    in_code_block = False
                     for line in lines:
-                        if line.startswith("```"):
-                            in_code_block = not in_code_block
+                        stripped = line.strip()
+                        # Ignorar líneas que solo son marcadores de código
+                        if stripped.startswith("```"):
                             continue
-                        if not in_code_block:
-                            json_lines.append(line)
+                        json_lines.append(line)
                     json_data = "\n".join(json_lines).strip()
+                    logger.info("Removed markdown code blocks")
                 
                 # 9) Extraer JSON si hay texto explicativo
                 if not json_data.startswith("{"):
