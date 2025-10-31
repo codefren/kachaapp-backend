@@ -174,8 +174,7 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                     }
                 },
                 tool_choice="none",  # NO usar herramientas
-                # En SDKs recientes este parámetro es max_output_tokens
-                max_output_tokens=16000,
+                max_completion_tokens=16000,  # Límite de tokens en la respuesta
                 metadata={
                     "invoice_parse_id": str(invoice_parse.id),
                     "filename": uploaded_file.name,
