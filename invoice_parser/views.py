@@ -132,26 +132,34 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                 assistant = client.beta.assistants.create(
                     name="Invoice Parser",
                     instructions=(
-                        "Eres un extractor de facturas especializado. Tu ÚNICA tarea es devolver CSV válido.\n\n"
-                        "IMPORTANTE - EXTRAE TODAS LAS LÍNEAS:\n"
-                        "- Lee el PDF COMPLETAMENTE desde la primera hasta la última línea de producto\n"
-                        "- NO omitas ninguna línea, incluso si hay muchas\n"
-                        "- NO te detengas hasta haber procesado todo el documento\n"
-                        "- Si hay 50 líneas, extrae las 50. Si hay 100, extrae las 100\n\n"
-                        "FORMATO REQUERIDO:\n"
-                        "codigo,cajas,uc,articulo,udes,unidad,contenedor\n\n"
-                        "REGLAS ESTRICTAS:\n"
-                        "1. Primera línea DEBE ser: codigo,cajas,uc,articulo,udes,unidad,contenedor\n"
-                        "2. Cada línea siguiente es un producto\n"
-                        "3. Punto (.) para decimales, NUNCA coma\n"
-                        "4. NO incluyas texto explicativo, SOLO CSV\n"
-                        "5. NO uses markdown ni bloques de código\n"
-                        "6. Si un campo está vacío, déjalo vacío (no pongas 'N/A')\n"
-                        "7. Procesa TODO el documento sin truncar\n\n"
-                        "EJEMPLO:\n"
+                        "Eres un extractor de líneas de productos de facturas en PDF. Debes leer el PDF y extraer TODAS las líneas de productos.\n\n"
+                        "QUÉ BUSCAR EN LA FACTURA:\n"
+                        "- Busca la tabla o lista de productos/artículos en la factura\n"
+                        "- Cada producto/artículo tiene: código, cantidad de cajas, unidades por caja, nombre del artículo, unidades totales, tipo de unidad, y contenedor\n"
+                        "- Extrae TODAS las líneas de productos que encuentres en el documento\n"
+                        "- Lee el documento COMPLETO, no te detengas en la primera página\n\n"
+                        "FORMATO DE SALIDA (CSV):\n"
+                        "Primera línea (header): codigo,cajas,uc,articulo,udes,unidad,contenedor\n"
+                        "Líneas siguientes: los datos de cada producto separados por comas\n\n"
+                        "CAMPOS A EXTRAER:\n"
+                        "- codigo: Código del producto\n"
+                        "- cajas: Número de cajas\n"
+                        "- uc: Unidades por caja (UC o Uc)\n"
+                        "- articulo: Nombre del producto/artículo\n"
+                        "- udes: Unidades totales\n"
+                        "- unidad: Tipo de unidad (kg, ud, etc)\n"
+                        "- contenedor: Número o nombre del contenedor\n\n"
+                        "REGLAS IMPORTANTES:\n"
+                        "1. NO escribas explicaciones, SOLO devuelve el CSV\n"
+                        "2. NO uses bloques de código markdown (```csv)\n"
+                        "3. Usa punto (.) para decimales\n"
+                        "4. Si un campo no tiene valor, déjalo vacío\n"
+                        "5. Extrae TODAS las líneas, no solo algunas\n\n"
+                        "EJEMPLO DE SALIDA:\n"
                         "codigo,cajas,uc,articulo,udes,unidad,contenedor\n"
-                        "ABC123,10,5,Manzanas,50,kg,CONT001\n"
-                        "DEF456,5,2,Naranjas,10,kg,CONT001"
+                        "12345,10,5,TOMATE CHERRY,50,kg,CONT-001\n"
+                        "67890,5,10,LECHUGA ROMANA,50,ud,CONT-001\n"
+                        "11111,8,6,PEPINO,48,kg,CONT-002"
                     ),
                     model="gpt-4o",
                     tools=[{"type": "code_interpreter"}]
@@ -163,10 +171,10 @@ class InvoiceParserViewSet(viewsets.ModelViewSet):
                         {
                             "role": "user",
                             "content": (
-                                "Extrae TODAS las líneas de productos de este PDF de factura y devuelve SOLO el CSV. "
-                                "IMPORTANTE: No omitas ninguna línea, procesa el documento completo hasta el final. "
-                                "Cuenta cuántas líneas hay y extráelas todas. "
-                                "NO escribas explicaciones, NO escribas código Python, devuelve ÚNICAMENTE el CSV."
+                                "Lee este PDF de factura y extrae TODAS las líneas de productos en formato CSV. "
+                                "Busca la tabla de productos en el PDF y extrae cada línea con estos campos: "
+                                "codigo,cajas,uc,articulo,udes,unidad,contenedor. "
+                                "Devuelve SOLO el CSV completo, sin explicaciones."
                             ),
                             "attachments": [
                                 {
