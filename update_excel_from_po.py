@@ -4,7 +4,7 @@
 Script para actualizar el archivo Excel con datos de PurchaseOrderItem.
 
 Compara productos del PurchaseOrder con la columna "ref:" (SKU) del Excel
-y actualiza la columna J con quantity_units.
+y actualiza la columna L con quantity_units.
 """
 import os
 import sys
@@ -16,6 +16,7 @@ django.setup()
 
 try:
     from openpyxl import load_workbook
+    from openpyxl.styles import Font, Alignment
 except ImportError:
     print("❌ Error: openpyxl no está instalado")
     print("Instala con: pip install --break-system-packages openpyxl")
@@ -101,7 +102,7 @@ def update_excel_from_purchase_order(purchase_order_id, excel_file='miquel.xlsx'
         return False
     
     print(f"\n🔍 Columna 'ref:' (SKU) encontrada: Columna {ref_col} ({chr(64+ref_col)})")
-    print(f"   Columna J (destino): Columna 10")
+    print(f"   Columna L (destino): Columna 12")
     print(f"   Fila de encabezados: {header_row}")
     print(f"   Fila inicio de datos: {data_start_row}")
     
@@ -136,8 +137,14 @@ def update_excel_from_purchase_order(purchase_order_id, excel_file='miquel.xlsx'
             quantity = po_items[sku]['quantity_units']
             product_name = po_items[sku]['product_name']
             
-            # Actualizar columna J (columna 10)
-            ws.cell(row, 10).value = quantity
+            # Actualizar columna L (columna 12)
+            cell = ws.cell(row, 12)
+            cell.value = quantity
+            
+            # Aplicar formato: centrado y fuente estándar
+            cell.font = Font(name='Calibri', size=11)
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            
             print(f"✓ Fila {row}: SKU {sku} ({product_name}) → {quantity} unidades")
             updated += 1
         else:
