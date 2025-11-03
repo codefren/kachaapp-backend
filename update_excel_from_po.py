@@ -10,8 +10,9 @@ import os
 import sys
 import django
 
-# Configurar Django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.local')
+# Configurar Django (usa la configuración del entorno si existe, sino local)
+if 'DJANGO_SETTINGS_MODULE' not in os.environ:
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.local')
 django.setup()
 
 try:
