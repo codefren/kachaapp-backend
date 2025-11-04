@@ -90,14 +90,6 @@ class Product(models.Model):
 
     name = models.CharField(max_length=150)
     sku = models.CharField(max_length=50)
-    organization = models.ForeignKey(
-        'users.Organization',
-        on_delete=models.PROTECT,
-        related_name='products',
-        null=True,  # Temporal para migración
-        blank=True,
-        help_text="Organización a la que pertenece el producto"
-    )
     providers = models.ManyToManyField(Provider, related_name="products")
     amount_boxes = models.PositiveIntegerField(
         default=0, help_text="Boxes purchased in the last order"
@@ -112,8 +104,8 @@ class Product(models.Model):
         ordering = ["name"]
         verbose_name = "Product"
         verbose_name_plural = "Products"
-        # SKU único por organización
-        unique_together = [('organization', 'sku')]
+        # Nota: Product no tiene campo organization directo
+        # Los productos se filtran por providers__organization
 
     def __str__(self):
         return self.name

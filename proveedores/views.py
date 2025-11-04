@@ -93,7 +93,7 @@ def proveedores_root(request):
     return Response({"message": "Proveedores API root"})
 
 
-class ProductViewSet(OrganizationQuerySetMixin, OrganizationPermissionMixin, viewsets.ReadOnlyModelViewSet):
+class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet para productos con filtrado automático por organización."""
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
@@ -101,13 +101,21 @@ class ProductViewSet(OrganizationQuerySetMixin, OrganizationPermissionMixin, vie
     pagination_class = ProductPagination
 
     def get_queryset(self):
-        # Usar el mixin para filtrar por organización
+        """Filtra productos por proveedores de la organización del usuario."""
         qs = super().get_queryset()
-        qs = qs.prefetch_related(
-            "providers",
-            "barcodes",
-            "favorites",
-        )
+        
+        # Superuser ve todos los productos
+        if self.request.user.is_superuser:
+            qs = qs.prefetch_related("providers", "barcodes", "favorites")
+        else:
+            # Usuario debe tener organización asignada
+            if not self.request.user.organization:
+                return qs.none()  # Retornar queryset vacío
+            
+            # Filtrar productos que tengan al menos un proveedor de la organización del usuario
+            qs = qs.filter(
+                providers__organization=self.request.user.organization
+            ).prefetch_related("providers", "barcodes", "favorites")
         # Filtrar por código de barras exacto si se provee
         request = getattr(self, 'request', None)
         if request is not None:

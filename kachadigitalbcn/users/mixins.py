@@ -7,23 +7,13 @@ from rest_framework import serializers
 
 
 class OrganizationQuerySetMixin:
-    """
-    Mixin para ViewSets que filtra automáticamente por organización del usuario.
-    
-    Atributos opcionales:
-        organization_field_path: Path al campo organization si es relación anidada.
-                                Ejemplo: 'market__organization' o 'refrigerator__market__organization'
-    
-    Uso:
-        class MyViewSet(OrganizationQuerySetMixin, ModelViewSet):
-            # Opcional: especificar path si es relación anidada
-            organization_field_path = 'market__organization'
-    """
     
     organization_field_path = None  # Sobreescribir en subclases si es necesario
     
     def get_queryset(self):
         """Filtra el queryset por la organización del usuario autenticado."""
+        from django.db.models import Q
+        
         queryset = super().get_queryset()
         
         # Si el usuario no está autenticado, retornar queryset vacío

@@ -329,19 +329,17 @@ class HasPrimaryBarcodeFilter(admin.SimpleListFilter):
 
 @admin.register(Product)
 class ProductAdmin(SimpleHistoryAdmin):
-    list_display = ("id", "name", "sku", "organization", "units_per_box", "amount_boxes")
+    list_display = ("id", "name", "sku", "units_per_box", "amount_boxes")
     search_fields = ("name", "sku", "providers__name", "barcodes__code")
-    list_filter = ("organization", "providers", HasBarcodeFilter, HasPrimaryBarcodeFilter)
+    list_filter = ("providers", HasBarcodeFilter, HasPrimaryBarcodeFilter)
     ordering = ("name",)
     filter_horizontal = ("providers",)
-    autocomplete_fields = ("organization",)
     inlines = [ProductBarcodeInline]
 
     readonly_fields = ("image_preview",)
     fields = (
         "name",
         "sku",
-        "organization",
         "providers",
         "units_per_box",
         "amount_boxes",
