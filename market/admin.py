@@ -3,8 +3,10 @@ from .models import Market, Refrigerator, TemperatureRecord
 
 @admin.register(Market)
 class MarketAdmin(admin.ModelAdmin):
-    list_display = ("name", "latitude", "longitude")
+    list_display = ("name", "organization", "latitude", "longitude")
+    list_filter = ("organization",)
     search_fields = ("name",)
+    autocomplete_fields = ("organization",)
 
 
 

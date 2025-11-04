@@ -32,7 +32,7 @@ class ProviderUploadForm(forms.ModelForm):
 
     class Meta:
         model = Provider
-        fields = ("name", "order_deadline_time", "order_available_weekdays")
+        fields = ("name", "organization", "order_deadline_time", "order_available_weekdays")
 
 
 class PurchaseOrderInline(admin.TabularInline):
@@ -46,13 +46,15 @@ class PurchaseOrderInline(admin.TabularInline):
 
 @admin.register(Provider)
 class ProviderAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "order_deadline_time", "get_weekdays_display", "last_po_id", "last_po_status", "pivot_link")
+    list_display = ("id", "name", "organization", "order_deadline_time", "get_weekdays_display", "last_po_id", "last_po_status", "pivot_link")
     search_fields = ("name",)
+    list_filter = ("organization",)
     ordering = ("name",)
-    fields = ("name", "order_deadline_time", "order_available_weekdays", "products_excel", "pivot_link")
+    fields = ("name", "organization", "order_deadline_time", "order_available_weekdays", "products_excel", "pivot_link")
     form = ProviderUploadForm
     inlines = [PurchaseOrderInline]
     readonly_fields = ("pivot_link",)
+    autocomplete_fields = ("organization",)
 
     def get_weekdays_display(self, obj):
         """Muestra los días de la semana de forma legible."""
@@ -327,17 +329,19 @@ class HasPrimaryBarcodeFilter(admin.SimpleListFilter):
 
 @admin.register(Product)
 class ProductAdmin(SimpleHistoryAdmin):
-    list_display = ("id", "name", "sku", "units_per_box", "amount_boxes")
+    list_display = ("id", "name", "sku", "organization", "units_per_box", "amount_boxes")
     search_fields = ("name", "sku", "providers__name", "barcodes__code")
-    list_filter = ("providers", HasBarcodeFilter, HasPrimaryBarcodeFilter)
+    list_filter = ("organization", "providers", HasBarcodeFilter, HasPrimaryBarcodeFilter)
     ordering = ("name",)
     filter_horizontal = ("providers",)
+    autocomplete_fields = ("organization",)
     inlines = [ProductBarcodeInline]
 
     readonly_fields = ("image_preview",)
     fields = (
         "name",
         "sku",
+        "organization",
         "providers",
         "units_per_box",
         "amount_boxes",
