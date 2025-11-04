@@ -95,6 +95,7 @@ def proveedores_root(request):
 
 class ProductViewSet(OrganizationQuerySetMixin, OrganizationPermissionMixin, viewsets.ReadOnlyModelViewSet):
     """ViewSet para productos con filtrado automático por organización."""
+    queryset = Product.objects.all()
     serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = ProductPagination
