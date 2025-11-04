@@ -9,12 +9,6 @@ from decimal import Decimal, InvalidOperation
 from datetime import date as date_cls, time as time_cls, datetime
 from django.db.models import Q
 
-from kachadigitalbcn.users.mixins import (
-    OrganizationQuerySetMixin,
-    OrganizationPermissionMixin,
-    filter_by_organization
-)
-
 from purchase_orders.serializers import PurchaseOrderSerializer
 from proveedores.models import Product, ProductBarcode
 from purchase_orders.models import PurchaseOrder, PurchaseOrderItem
@@ -76,14 +70,13 @@ def parse_12hour_time(time_str):
         )
 
 
-class SearchReceivedProductViewSet(OrganizationQuerySetMixin, OrganizationPermissionMixin, viewsets.ModelViewSet):
-    """Buscar productos recibidos con filtrado automático por organización."""
+class SearchReceivedProductViewSet(viewsets.ModelViewSet):
+    """Keep search functionality intact: validate barcode within a purchase order and return product info."""
 
     queryset = PurchaseOrder.objects.all()
     serializer_class = PurchaseOrderSerializer
     permission_classes = [permissions.IsAuthenticated]
     http_method_names = ["get", "head", "options", "post"]
-    organization_field_path = 'market__organization'  # PurchaseOrder -> Market -> Organization
 
     def _get_user_market(self, user):
         """Return latest market from user's LoginHistory or None."""
@@ -424,8 +417,8 @@ class SearchReceivedProductViewSet(OrganizationQuerySetMixin, OrganizationPermis
         return Response(result, status=status.HTTP_201_CREATED)
 
 
-class ReceptionViewSet(OrganizationPermissionMixin, viewsets.ViewSet):
-    """Gestiona recepciones con filtrado automático por organización."""
+class ReceptionViewSet(viewsets.ViewSet):
+    """Gestiona recepciones: detalle y edición (status e items)."""
 
     permission_classes = [permissions.IsAuthenticated]
     logger = logging.getLogger(__name__)
@@ -446,20 +439,6 @@ class ReceptionViewSet(OrganizationPermissionMixin, viewsets.ViewSet):
             reception = Reception.objects.select_related("purchase_order", "market").get(id=pk)
         except Reception.DoesNotExist:
             return Response({"detail": "Reception not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        # Validar organización del usuario
-        user_org = getattr(request.user, 'organization', None)
-        if not request.user.is_superuser:
-            if not user_org:
-                return Response(
-                    {"detail": "Usuario sin organización asignada."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-            if reception.market.organization != user_org:
-                return Response(
-                    {"detail": "No tienes permiso para acceder a esta recepción."},
-                    status=status.HTTP_403_FORBIDDEN
-                )
 
         market = self._get_user_market(request.user)
         if not market:
@@ -508,7 +487,7 @@ class ReceptionViewSet(OrganizationPermissionMixin, viewsets.ViewSet):
         return Response(data)
 
     def list(self, request):
-        """GET: lista de recepciones del market del usuario con filtrado por organización."""
+        """GET: lista de recepciones del market del usuario con solo id e imagen de factura."""
         market = self._get_user_market(request.user)
         if not market:
             return Response(
@@ -516,17 +495,12 @@ class ReceptionViewSet(OrganizationPermissionMixin, viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Filtrar por organización
-        qs = Reception.objects.filter(market=market)
-        if not request.user.is_superuser:
-            user_org = getattr(request.user, 'organization', None)
-            if user_org:
-                qs = qs.filter(market__organization=user_org)
-            else:
-                # Usuario sin organización no puede ver recepciones
-                qs = qs.none()
-        
-        qs = qs.only("id", "invoice_image", "created_at").order_by("-created_at")
+        qs = (
+            Reception.objects
+            .filter(market=market)
+            .only("id", "invoice_image", "created_at")
+            .order_by("-created_at")
+        )
         data = [
             {
                 "id": r.id,
