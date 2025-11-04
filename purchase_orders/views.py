@@ -7,13 +7,18 @@ from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from kachadigitalbcn.users.mixins import (
+    OrganizationQuerySetMixin,
+    OrganizationPermissionMixin
+)
+
 from proveedores.models import ProductBarcode
 from .models import PurchaseOrder, PurchaseOrderItem
 from .serializers import PurchaseOrderSerializer, PurchaseOrderItemSerializer
 
 
-class PurchaseOrderViewSet(viewsets.ModelViewSet):
-    """ViewSet for purchase orders with custom actions."""
+class PurchaseOrderViewSet(OrganizationQuerySetMixin, OrganizationPermissionMixin, viewsets.ModelViewSet):
+    """ViewSet para órdenes de compra con filtrado automático por organización."""
     
     queryset = PurchaseOrder.objects.select_related("provider", "ordered_by", "market").prefetch_related(
         Prefetch("items", queryset=PurchaseOrderItem.objects.select_related("product").order_by("-created_at"))
@@ -21,6 +26,7 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     serializer_class = PurchaseOrderSerializer
     permission_classes = [permissions.IsAuthenticated]
     http_method_names = ["get", "post", "put", "patch", "head", "options"]
+    organization_field_path = 'market__organization'  # PurchaseOrder -> Market -> Organization
 
     @action(detail=False, methods=["get"], url_path="has-ordered-today")
     def has_ordered_today(self, request):
@@ -221,10 +227,11 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
-class PurchaseOrderItemViewSet(viewsets.ModelViewSet):
-    """ViewSet for purchase order items."""
+class PurchaseOrderItemViewSet(OrganizationQuerySetMixin, OrganizationPermissionMixin, viewsets.ModelViewSet):
+    """ViewSet para items de órdenes de compra con filtrado automático por organización."""
     
     queryset = PurchaseOrderItem.objects.select_related("order", "product").all()
     serializer_class = PurchaseOrderItemSerializer
     permission_classes = [permissions.IsAuthenticated]
     http_method_names = ["get", "post", "put", "patch", "head", "options"]
+    organization_field_path = 'order__market__organization'  # PurchaseOrderItem -> PurchaseOrder -> Market -> Organization

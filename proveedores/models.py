@@ -17,7 +17,15 @@ class Provider(models.Model):
         (6, 'Domingo'),
     ]
 
-    name = models.CharField(max_length=150, unique=True)
+    name = models.CharField(max_length=150)
+    organization = models.ForeignKey(
+        'users.Organization',
+        on_delete=models.PROTECT,
+        related_name='providers',
+        null=True,  # Temporal para migración
+        blank=True,
+        help_text="Organización a la que pertenece el proveedor"
+    )
     contact_person = models.CharField(max_length=150, blank=True, default='', help_text="Persona de contacto")
     phone = models.CharField(max_length=20, blank=True, default='', help_text="Teléfono de contacto")
     email = models.EmailField(blank=True, default='', help_text="Email de contacto")
@@ -36,9 +44,12 @@ class Provider(models.Model):
         ordering = ["name"]
         verbose_name = "Provider"
         verbose_name_plural = "Providers"
+        # Nombre único por organización
+        unique_together = [('organization', 'name')]
 
     def __str__(self):
-        return self.name
+        org_name = self.organization.name if self.organization else 'Sin org'
+        return f"{self.name} ({org_name})"
 
 
 class ProductFavorite(models.Model):
@@ -78,7 +89,15 @@ class Product(models.Model):
     """Producto suministrado por uno o varios proveedores."""
 
     name = models.CharField(max_length=150)
-    sku = models.CharField(max_length=50, unique=True)
+    sku = models.CharField(max_length=50)
+    organization = models.ForeignKey(
+        'users.Organization',
+        on_delete=models.PROTECT,
+        related_name='products',
+        null=True,  # Temporal para migración
+        blank=True,
+        help_text="Organización a la que pertenece el producto"
+    )
     providers = models.ManyToManyField(Provider, related_name="products")
     amount_boxes = models.PositiveIntegerField(
         default=0, help_text="Boxes purchased in the last order"
@@ -93,6 +112,8 @@ class Product(models.Model):
         ordering = ["name"]
         verbose_name = "Product"
         verbose_name_plural = "Products"
+        # SKU único por organización
+        unique_together = [('organization', 'sku')]
 
     def __str__(self):
         return self.name

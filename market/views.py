@@ -24,8 +24,18 @@ class MarketProximityTokenObtainPairView(MarketLoginHistoryMixin, TokenObtainPai
     serializer_class = MarketProximityTokenObtainPairSerializer
 
     def post(self, request, *args, **kwargs):
+        # Log completo de datos recibidos
+        logger.info("[MarketProximity] === TOKEN REQUEST ===")
+        logger.info("[MarketProximity] request.data: %s", dict(request.data))
+        logger.info("[MarketProximity] request.user: %s", request.user)
+        
         latitude = request.data.get('latitude')
         longitude = request.data.get('longitude')
+        username = request.data.get('username')
+        password_length = len(request.data.get('password', '')) if request.data.get('password') else 0
+        
+        logger.info("[MarketProximity] username=%s password_length=%s lat=%s lon=%s", 
+                   username, password_length, latitude, longitude)
         logger.debug("[MarketProximity] Coordenadas recibidas (obtain) lat=%s lon=%s", latitude, longitude)
 
         try:

@@ -4,6 +4,11 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters import rest_framework as filters
 
+from kachadigitalbcn.users.mixins import (
+    OrganizationQuerySetMixin,
+    OrganizationPermissionMixin
+)
+
 from .models import Refrigerator, TemperatureRecord
 from .refrigerator_serializers import (
     RefrigeratorSerializer,
@@ -11,15 +16,18 @@ from .refrigerator_serializers import (
 )
 
 
-class RefrigeratorViewSet(viewsets.ModelViewSet):
-    """CRUD de neveras + endpoint para registrar temperatura del día."""
+class RefrigeratorViewSet(OrganizationQuerySetMixin, OrganizationPermissionMixin, viewsets.ModelViewSet):
+    """CRUD de neveras con filtrado automático por organización."""
 
     queryset = Refrigerator.objects.all().select_related("market")
     serializer_class = RefrigeratorSerializer
     permission_classes = [permissions.IsAuthenticated]
+    organization_field_path = 'market__organization'  # Refrigerator -> Market -> Organization
 
     def get_queryset(self):
+        # Filtrar primero por organización
         qs = super().get_queryset()
+        # Luego aplicar filtros adicionales
         market_id = self.request.query_params.get("market")
         if market_id:
             qs = qs.filter(market_id=market_id)
@@ -92,8 +100,8 @@ class TemperatureRecordFilter(filters.FilterSet):
         fields = ['market', 'date', 'date_from', 'date_to', 'period', 'refrigerator']
 
 
-class TemperatureRecordViewSet(viewsets.ReadOnlyModelViewSet):
-    """ViewSet para consultar registros de temperatura con filtros."""
+class TemperatureRecordViewSet(OrganizationQuerySetMixin, viewsets.ReadOnlyModelViewSet):
+    """ViewSet para consultar registros de temperatura con filtrado automático por organización."""
     queryset = TemperatureRecord.objects.all().select_related(
         'refrigerator', 'refrigerator__market'
     ).order_by('-date', '-recorded_at')
@@ -101,8 +109,10 @@ class TemperatureRecordViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     filterset_class = TemperatureRecordFilter
     filter_backends = [filters.DjangoFilterBackend]
+    organization_field_path = 'refrigerator__market__organization'  # TemperatureRecord -> Refrigerator -> Market -> Organization
 
     def get_queryset(self):
-        """Optimizar queryset con select_related."""
+        """Filtrar por organización y optimizar queryset."""
+        # El mixin ya filtra por organización a través de refrigerator__market__organization
         qs = super().get_queryset()
         return qs

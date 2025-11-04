@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 
+from kachadigitalbcn.users.mixins import OrganizationSerializerMixin
 from purchase_orders.models import PurchaseOrder
 from .models import (
     Product,
@@ -9,7 +10,8 @@ from .models import (
 )
 
 
-class ProviderSerializer(serializers.ModelSerializer):
+class ProviderSerializer(OrganizationSerializerMixin, serializers.ModelSerializer):
+    """Serializer para proveedores con asignación automática de organización."""
     has_received_orders = serializers.SerializerMethodField()
     order_available_dates = serializers.SerializerMethodField()
     has_draft_reception = serializers.BooleanField(read_only=True)
@@ -99,7 +101,8 @@ class ProviderMiniSerializer(serializers.ModelSerializer):
         fields = ("id", "name")
 
 
-class ProductSerializer(serializers.ModelSerializer):
+class ProductSerializer(OrganizationSerializerMixin, serializers.ModelSerializer):
+    """Serializer para productos con asignación automática de organización."""
     providers = ProviderMiniSerializer(many=True, read_only=True)
     barcodes = ProductBarcodeSerializer(many=True, read_only=True)
     current_user_favorite = serializers.SerializerMethodField()

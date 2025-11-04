@@ -6,14 +6,27 @@ from django.conf import settings
 
 
 class Market(models.Model):
-    name = models.CharField(max_length=255, unique=True)
+    name = models.CharField(max_length=255)
+    organization = models.ForeignKey(
+        'users.Organization',
+        on_delete=models.PROTECT,
+        related_name='markets',
+        null=True,  # Temporal para migración
+        blank=True,
+        help_text="Organización a la que pertenece el mercado"
+    )
     latitude = models.FloatField()
     longitude = models.FloatField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        # Nombre único por organización (no globalmente)
+        unique_together = [('organization', 'name')]
 
     def __str__(self):
-        return self.name
+        org_name = self.organization.name if self.organization else 'Sin org'
+        return f"{self.name} ({org_name})"
 
     def is_near(self, user_lat, user_lon, max_distance_meters=500):
         """

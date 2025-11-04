@@ -7,6 +7,11 @@ from django.db.models import Prefetch, Exists, OuterRef, Subquery, Value, Boolea
 from django.utils import timezone
 import datetime
 
+from kachadigitalbcn.users.mixins import (
+    OrganizationQuerySetMixin,
+    OrganizationPermissionMixin
+)
+
 from django.conf import settings
 from ftplib import FTP
 import io
@@ -88,19 +93,19 @@ def proveedores_root(request):
     return Response({"message": "Proveedores API root"})
 
 
-class ProductViewSet(viewsets.ReadOnlyModelViewSet):
+class ProductViewSet(OrganizationQuerySetMixin, OrganizationPermissionMixin, viewsets.ReadOnlyModelViewSet):
+    """ViewSet para productos con filtrado automático por organización."""
     serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = ProductPagination
 
     def get_queryset(self):
-        qs = (
-            Product.objects.all()
-            .prefetch_related(
-                "providers",
-                "barcodes",
-                "favorites",
-            )
+        # Usar el mixin para filtrar por organización
+        qs = super().get_queryset()
+        qs = qs.prefetch_related(
+            "providers",
+            "barcodes",
+            "favorites",
         )
         # Filtrar por código de barras exacto si se provee
         request = getattr(self, 'request', None)
@@ -187,7 +192,8 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data)
 
 
-class ProviderViewSet(viewsets.ReadOnlyModelViewSet):
+class ProviderViewSet(OrganizationQuerySetMixin, OrganizationPermissionMixin, viewsets.ReadOnlyModelViewSet):
+    """ViewSet para proveedores con filtrado automático por organización."""
     queryset = Provider.objects.all()
     serializer_class = ProviderSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -226,7 +232,9 @@ class ProviderViewSet(viewsets.ReadOnlyModelViewSet):
             shipped_po_subq.order_by("-created_at").values("id")[:1]
         )
 
-        qs = Provider.objects.all().annotate(
+        # Usar el mixin para filtrar por organización
+        base_qs = super().get_queryset()
+        qs = base_qs.annotate(
             has_draft_reception=Exists(subq),
             draft_reception_order_id=latest_draft_po_id,
             last_shipped_order_id=last_shipped_order_id,
