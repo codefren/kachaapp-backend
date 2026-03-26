@@ -22,7 +22,7 @@ certificatesResolvers:
   letsencrypt:
     # https://doc.traefik.io/traefik/https/acme/#lets-encrypt
     acme:
-      email: 'kachadigital@backend.kachadigitalbcn.com'
+      email: 'kachadigital@gmail.com@kachapp.kachadigitalbcn.com'
       storage: /etc/traefik/acme/acme.json
       # https://doc.traefik.io/traefik/https/acme/#httpchallenge
       httpChallenge:
@@ -31,7 +31,7 @@ certificatesResolvers:
 http:
   routers:
     web-secure-router:
-      rule: 'Host(`backend.kachadigitalbcn.com`)'
+      rule: 'Host(`kachapp.kachadigitalbcn.com`)'
       entryPoints:
         - web-secure
       middlewares:
@@ -42,7 +42,7 @@ http:
         certResolver: letsencrypt
 
     flower-secure-router:
-      rule: 'Host(`backend.kachadigitalbcn.com`)'
+      rule: 'Host(`kachapp.kachadigitalbcn.com`)'
       entryPoints:
         - flower
       service: flower
@@ -51,7 +51,7 @@ http:
         certResolver: letsencrypt
 
     web-media-router:
-      rule: 'Host(`backend.kachadigitalbcn.com`) && PathPrefix(`/media/`)'
+      rule: 'Host(`kachapp.kachadigitalbcn.com`) && PathPrefix(`/media/`)'
       entryPoints:
         - web-secure
       middlewares:

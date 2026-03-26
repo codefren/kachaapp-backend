@@ -817,3 +817,33 @@ class ReceptionViewSet(viewsets.ViewSet):
             self.logger.error(f"Errores de validación: {serializer.errors}")
             self.logger.info("="*70)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    @action(detail=True, methods=["post"], url_path="ocr-invoice")
+    def ocr_invoice(self, request, pk=None):
+        """
+        Procesa OCR de una imagen de factura.
+        """
+        try:
+            reception = Reception.objects.get(id=pk)
+        except Reception.DoesNotExist:
+            return Response({"detail": "Reception not found."}, status=404)
+
+        image_file = request.FILES.get("invoice_image")
+        if not image_file:
+            return Response({"error": "No image provided"}, status=400)
+
+        try:
+            image = Image.open(image_file).convert("L")
+            text = pytesseract.image_to_string(image, lang="spa+eng")
+
+            total = extract_invoice_total(text)
+            date = extract_invoice_date(text)
+
+            return Response({
+                "success": True,
+                "invoice_total": total,
+                "invoice_date": date,
+                "raw_text": text,
+            })
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)

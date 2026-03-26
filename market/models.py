@@ -3,6 +3,7 @@ from django.core.exceptions import ValidationError
 from .utils import haversine_distance
 
 from django.conf import settings
+from django.utils import timezone
 
 
 class Market(models.Model):
@@ -11,7 +12,7 @@ class Market(models.Model):
         'users.Organization',
         on_delete=models.PROTECT,
         related_name='markets',
-        null=True,  # Temporal para migración
+        null=True,
         blank=True,
         help_text="Organización a la que pertenece el mercado"
     )
@@ -19,9 +20,8 @@ class Market(models.Model):
     longitude = models.FloatField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
-        # Nombre único por organización (no globalmente)
         unique_together = [('organization', 'name')]
 
     def __str__(self):
@@ -29,9 +29,6 @@ class Market(models.Model):
         return f"{self.name} ({org_name})"
 
     def is_near(self, user_lat, user_lon, max_distance_meters=500):
-        """
-        Retorna True si el usuario está a max_distance_meters o menos de la tienda.
-        """
         distancia = haversine_distance(
             self.latitude, self.longitude, user_lat, user_lon
         )
@@ -57,8 +54,6 @@ class LoginHistory(models.Model):
 
 
 class Refrigerator(models.Model):
-    """Nevera perteneciente a un market."""
-
     market = models.ForeignKey(
         Market, related_name="refrigerators", on_delete=models.CASCADE
     )
@@ -75,8 +70,6 @@ class Refrigerator(models.Model):
 
 
 class TemperatureRecord(models.Model):
-    """Registro de temperatura de una nevera (mañana y noche)."""
-
     class Period(models.TextChoices):
         MORNING = "MORNING", "Mañana"
         NIGHT = "NIGHT", "Noche"
@@ -109,10 +102,8 @@ class TemperatureRecord(models.Model):
         ]
 
     def clean(self):
-        """Validar que la temperatura esté en un rango apropiado para neveras."""
         super().clean()
         if self.temperature is not None:
-            # Validación de rango normal para neveras
             if self.temperature < -30.0 or self.temperature > 10.0:
                 raise ValidationError(
                     {
@@ -120,57 +111,39 @@ class TemperatureRecord(models.Model):
                     }
                 )
 
-            # Validación de alerta: temperatura crítica
-            if self.temperature > 5.0:
-                # No bloquear, pero podría usarse para alertas
-                pass  # Temperatura alta pero no crítica
-
-            if self.temperature < -25.0:
-                # No bloquear, pero podría usarse para alertas
-                pass  # Temperatura muy baja pero no crítica
-
     def save(self, *args, **kwargs):
-        """Ejecutar validaciones antes de guardar."""
         self.full_clean()
         super().save(*args, **kwargs)
 
     def is_temperature_critical(self):
-        """Determina si la temperatura está en rango crítico."""
         if self.temperature is None:
             return False
         return self.temperature > 5.0 or self.temperature < -25.0
 
     def get_temperature_status(self):
-        """Retorna el estado de la temperatura."""
         if self.temperature is None:
             return "UNKNOWN"
 
         if self.temperature > 10.0 or self.temperature < -30.0:
-            return "INVALID"  # Fuera del rango permitido
+            return "INVALID"
         elif self.temperature > 5.0:
-            return "HIGH"  # Alta pero válida
+            return "HIGH"
         elif self.temperature < -25.0:
-            return "VERY_LOW"  # Muy baja pero válida
+            return "VERY_LOW"
         elif self.temperature >= -5.0 and self.temperature <= 3.0:
-            return "OPTIMAL"  # Rango óptimo para neveras
+            return "OPTIMAL"
         else:
-            return "NORMAL"  # Rango normal
+            return "NORMAL"
 
     @classmethod
     def get_critical_temperatures(cls, refrigerator=None, days=7):
-        """Obtiene registros con temperaturas críticas de los últimos días."""
-        from django.utils import timezone
-        from datetime import timedelta
-
         queryset = cls.objects.all()
         if refrigerator:
             queryset = queryset.filter(refrigerator=refrigerator)
 
-        # Filtrar por días recientes
-        since_date = timezone.now().date() - timedelta(days=days)
+        since_date = timezone.now().date() - timezone.timedelta(days=days)
         queryset = queryset.filter(date__gte=since_date)
 
-        # Filtrar temperaturas críticas
         return queryset.filter(
             models.Q(temperature__gt=5.0) | models.Q(temperature__lt=-25.0)
         )
@@ -179,3 +152,90 @@ class TemperatureRecord(models.Model):
         period_display = dict(self.Period.choices).get(self.period, self.period)
         status = self.get_temperature_status()
         return f"{self.refrigerator} - {self.date} ({period_display}): {self.temperature}°C [{status}]"
+
+
+class Shift(models.Model):
+    class Status(models.TextChoices):
+        WORKING = "WORKING", "Working"
+        BREAK = "BREAK", "Break"
+        OFF = "OFF", "Off"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="shifts",
+    )
+    market = models.ForeignKey(
+        Market,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="shifts",
+    )
+
+    started_at = models.DateTimeField()
+    ended_at = models.DateTimeField(null=True, blank=True)
+
+    break_started_at = models.DateTimeField(null=True, blank=True)
+    break_total_seconds = models.PositiveIntegerField(default=0)
+
+    start_latitude = models.FloatField(null=True, blank=True)
+    start_longitude = models.FloatField(null=True, blank=True)
+
+    end_latitude = models.FloatField(null=True, blank=True)
+    end_longitude = models.FloatField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+
+    def __str__(self):
+        return f"{self.user} | {self.started_at} | {self.ended_at or 'OPEN'}"
+
+    @property
+    def is_open(self):
+        return self.ended_at is None
+
+    @property
+    def on_break(self):
+        return self.break_started_at is not None and self.ended_at is None
+
+    def get_break_seconds(self, now=None):
+        total = int(self.break_total_seconds or 0)
+
+        if self.break_started_at and self.ended_at is None:
+            now = now or timezone.now()
+            extra = max(0, int((now - self.break_started_at).total_seconds()))
+            total += extra
+
+        return total
+
+    def get_worked_seconds(self, now=None):
+        now = now or timezone.now()
+
+        if self.ended_at:
+            total_span = max(0, int((self.ended_at - self.started_at).total_seconds()))
+        else:
+            total_span = max(0, int((now - self.started_at).total_seconds()))
+
+        break_seconds = self.get_break_seconds(now=now)
+        return max(0, total_span - break_seconds)
+
+    def close_break(self, now=None):
+        if not self.break_started_at:
+            return
+
+        now = now or timezone.now()
+        extra = max(0, int((now - self.break_started_at).total_seconds()))
+        self.break_total_seconds = int(self.break_total_seconds or 0) + extra
+        self.break_started_at = None
+
+    def close_shift(self, now=None):
+        now = now or timezone.now()
+
+        if self.break_started_at:
+            self.close_break(now=now)
+
+        self.ended_at = now

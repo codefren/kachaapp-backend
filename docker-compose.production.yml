@@ -1,19 +1,17 @@
+version: "3.9"
+
 volumes:
   production_postgres_data: {}
   production_postgres_data_backups: {}
   production_traefik: {}
   production_django_media: {}
-  
   production_redis_data: {}
-  
-
 
 services:
   django: &django
     build:
       context: .
       dockerfile: ./compose/production/django/Dockerfile
-
     image: kachadigitalbcn_production_django
     volumes:
       - production_django_media:/app/kachadigitalbcn/media
@@ -23,6 +21,8 @@ services:
     env_file:
       - ./.envs/.production/.django
       - ./.envs/.production/.postgres
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
     command: /start
 
   postgres:
@@ -36,41 +36,31 @@ services:
     env_file:
       - ./.envs/.production/.postgres
 
-  traefik:
-    build:
-      context: .
-      dockerfile: ./compose/production/traefik/Dockerfile
-    image: kachadigitalbcn_production_traefik
-    depends_on:
-      - django
-    volumes:
-      - production_traefik:/etc/traefik/acme
-    ports:
-      - '0.0.0.0:80:80'
-      - '0.0.0.0:443:443'
-      - '0.0.0.0:5555:5555'
-
   redis:
-    image: docker.io/redis:6
-    
+    image: redis:6
     volumes:
       - production_redis_data:/data
-    
 
   celeryworker:
     <<: *django
     image: kachadigitalbcn_production_celeryworker
     command: /start-celeryworker
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
 
   celerybeat:
     <<: *django
     image: kachadigitalbcn_production_celerybeat
     command: /start-celerybeat
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
 
   flower:
     <<: *django
     image: kachadigitalbcn_production_flower
     command: /start-flower
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
 
   nginx:
     build:
@@ -79,5 +69,17 @@ services:
     image: kachadigitalbcn_production_nginx
     depends_on:
       - django
+
+  traefik:
+    build:
+      context: .
+      dockerfile: ./compose/production/traefik/Dockerfile
+    image: kachadigitalbcn_production_traefik
     volumes:
-      - production_django_media:/usr/share/nginx/media:ro
+      - production_traefik:/etc/traefik/acme
+    ports:
+      - "80:80"
+      - "443:443"
+      - "5555:5555"
+    depends_on:
+      - nginx

@@ -24,6 +24,7 @@ urlpatterns = [
     # Your stuff: custom urls includes go here
     # ...
     path("api/", include("proveedores.urls", namespace="proveedores")),
+    path("api/", include("market.urls", namespace="market")),
     # Media files
     *static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT),
 ]

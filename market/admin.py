@@ -1,34 +1,24 @@
 from django.contrib import admin
-from .models import Market, Refrigerator, TemperatureRecord
+
+from .models import Market, Shift
+
 
 @admin.register(Market)
 class MarketAdmin(admin.ModelAdmin):
     list_display = ("name", "organization", "latitude", "longitude")
-    list_filter = ("organization",)
-    search_fields = ("name",)
-    autocomplete_fields = ("organization",)
+    search_fields = ("name", "organization__name")
 
 
-
-class TemperatureRecordInline(admin.TabularInline):
-    model = TemperatureRecord
-    extra = 0
-    readonly_fields = ("date", "temperature", "recorded_at")
-    can_delete = False
-
-
-@admin.register(Refrigerator)
-class RefrigeratorAdmin(admin.ModelAdmin):
-    list_display = ("name", "market", "created_at")
-    list_filter = ("market",)
-    search_fields = ("name", "market__name")
-    inlines = [TemperatureRecordInline]
-
-
-@admin.register(TemperatureRecord)
-class TemperatureRecordAdmin(admin.ModelAdmin):
-    list_display = ("refrigerator", "date", "temperature", "recorded_at")
-    list_filter = ("refrigerator__market", "date")
-    search_fields = ("refrigerator__name",)
-
-# Register your models here.
+@admin.register(Shift)
+class ShiftAdmin(admin.ModelAdmin):
+    list_display = (
+        "user",
+        "market",
+        "started_at",
+        "ended_at",
+        "break_started_at",
+        "break_total_seconds",
+    )
+    list_filter = ("market", "started_at", "ended_at")
+    search_fields = ("user__username", "market__name")
+    readonly_fields = ("created_at", "updated_at")
