@@ -11,10 +11,11 @@ ARG BUILD_ENVIRONMENT=production
 RUN apt-get update && apt-get install --no-install-recommends -y \
   # dependencies for building Python packages
   build-essential \
+  gcc \
+  g++ \
   # psycopg dependencies
-  libpq-dev
-
-
+  libpq-dev \
+  && rm -rf /var/lib/apt/lists/*
 # Requirements are installed here to ensure they will be cached.
 COPY ./requirements .
 
@@ -45,6 +46,10 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
   libpq-dev \
   # Translations dependencies
   gettext \
+  # OCR
+  tesseract-ocr \
+  tesseract-ocr-spa \
+  tesseract-ocr-eng \
   # entrypoint
   wait-for-it \
   # cleaning up unused files

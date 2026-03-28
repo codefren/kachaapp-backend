@@ -93,9 +93,11 @@ LOCAL_APPS = [
     "market",
     # Your stuff: custom apps go here
     "proveedores",
-    "purchase_orders.apps.PurchaseOrdersConfig",
+    "purchase_orders",
     "received",
     "invoice_parser",
+    "clients",
+    "sales_orders",
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS

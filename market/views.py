@@ -8,6 +8,10 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from market.services.temperature_ocr import extract_temperature_from_uploaded_file
 
 from .models import LoginHistory, Market, Shift
 from .serializers import (
@@ -182,6 +186,23 @@ def _serialize_today_shift(shift):
         "break_seconds": shift.get_break_seconds(now=now),
     }
 
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def temperature_ocr(request):
+    image = request.FILES.get("image")
+
+    if not image:
+        return Response(
+            {"success": False, "message": "No se recibió ninguna imagen."},
+            status=400,
+        )
+
+    result = extract_temperature_from_uploaded_file(image)
+
+    return Response({
+        "success": True,
+        "data": result,
+    })
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
