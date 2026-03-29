@@ -33,108 +33,30 @@ class MarketLoginHistoryMixin:
                 event_type=event_type,
             )
 
- class MarketProximityTokenRefreshView(MarketLoginHistoryMixin, TokenRefreshView):
-    serializer_class = MarketProximityTokenRefreshSerializer
-
-    def post(self, request, *args, **kwargs):
-        latitude = request.data.get("latitude")
-        longitude = request.data.get("longitude")
-
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        market = getattr(serializer, "_market", None)
-
-        user = request.user if getattr(request.user, "is_authenticated", False) else None
-
-        self.log_login_history(
-            user,
-            market,
-            latitude,
-            longitude,
-            LoginHistory.REFRESH,
-        )
-
-        return Response(serializer.validated_data, status=status.HTTP_200_OK)
 
 
 
 
 
+                )
 
+                self.log_login_history(user, market, latitude, longitude, LoginHistory.LOGIN)
 
+            response = super().post(request, *args, **kwargs)
+            logger.info("[MarketProximity] Token issued successfully status=%s", response.status_code)
+            return response
 
-
-class MarketProximityTokenObtainPairView(MarketLoginHistoryMixin, TokenObtainPairView):
-    serializer_class = MarketProximityTokenObtainPairSerializer
-
-    def post(self, request, *args, **kwargs):
-        latitude = request.data.get("latitude")
-        longitude = request.data.get("longitude")
-
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        market = getattr(serializer, "_market", None)
-        user = getattr(serializer, "user", None)
-
-        self.log_login_history(
-            user,
-            market,
-            latitude,
-            longitude,
-            LoginHistory.LOGIN,
-        )
-
-        return Response(serializer.validated_data, status=status.HTTP_200_OK)1~class MarketProximityTokenObtainPairView(MarketLoginHistoryMixin, TokenObtainPairView):
-    serializer_class = MarketProximityTokenObtainPairSerializer
-
-    def post(self, request, *args, **kwargs):
-        latitude = request.data.get("latitude")
-        longitude = request.data.get("longitude")
-
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        market = getattr(serializer, "_market", None)
-        user = getattr(serializer, "user", None)
-
-        self.log_login_history(
-            user,
-            market,
-            latitude,
-            longitude,
-            LoginHistory.LOGIN,
-        )
-
-        return Response(serializer.validated_data, status=status.HTTP_200_OK)1~class MarketProximityTokenObtainPairView(MarketLoginHistoryMixin, TokenObtainPairView):
-    serializer_class = MarketProximityTokenObtainPairSerializer
-
-    def post(self, request, *args, **kwargs):
-        latitude = request.data.get("latitude")
-        longitude = request.data.get("longitude")
-
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        market = getattr(serializer, "_market", None)
-        user = getattr(serializer, "user", None)
-
-        self.log_login_history(
-            user,
-            market,
-            latitude,
-            longitude,
-            LoginHistory.LOGIN,
-        )
-
-        return Response(serializer.validated_data, status=status.HTTP_200_OK)
-
-
-
-
-
-
+        except ValidationError as e:
+            logger.warning(
+                "[MarketProximity] Validation failed (obtain) lat=%s lon=%s errors=%s",
+                latitude,
+                longitude,
+                getattr(e, "detail", str(e)),
+            )
+            raise
+        except Exception:
+            logger.exception("[MarketProximity] Error processing token obtain POST")
+            raise
 
 class MarketProximityTokenRefreshView(MarketLoginHistoryMixin, TokenRefreshView):
     serializer_class = MarketProximityTokenRefreshSerializer

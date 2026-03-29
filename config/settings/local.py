@@ -51,7 +51,7 @@ else:
 # ------------------------------------------------------------------------------
 # http://whitenoise.evans.io/en/latest/django.html#using-whitenoise-in-development
 INSTALLED_APPS = ["whitenoise.runserver_nostatic", *INSTALLED_APPS]
-
+'django.contrib.humanize',
 
 # django-debug-toolbar
 # ------------------------------------------------------------------------------
