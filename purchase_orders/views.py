@@ -1,18 +1,19 @@
 """Views for purchase orders."""
-
 import datetime
 from django.db.models import Prefetch
 from django.utils import timezone
+from django.http import HttpResponse
+from django.core.mail import EmailMessage
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
-
 from kachadigitalbcn.users.mixins import (
     OrganizationQuerySetMixin,
     OrganizationPermissionMixin
 )
 
 from proveedores.models import ProductBarcode
+from .export_utils import build_purchase_order_excel, build_purchase_order_pdf
 from .models import PurchaseOrder, PurchaseOrderItem
 from .serializers import PurchaseOrderSerializer, PurchaseOrderItemSerializer
 
@@ -28,6 +29,104 @@ class PurchaseOrderViewSet(OrganizationQuerySetMixin, OrganizationPermissionMixi
     http_method_names = ["get", "post", "put", "patch", "head", "options"]
     organization_field_path = 'market__organization'  # PurchaseOrder -> Market -> Organization
 
+    @action(detail=True, methods=["get"], url_path="export-excel")
+    def export_excel(self, request, pk=None):
+        """Exporta una orden de compra a Excel."""
+        order = self.get_object()
+        file_data = build_purchase_order_excel(order)
+
+        response = HttpResponse(
+            file_data.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = f'attachment; filename="pedido_{order.id}.xlsx"'
+        return response
+
+    @action(detail=True, methods=["post"], url_path="send-to-provider")
+    def send_to_provider(self, request, pk=None):
+        """Envía la orden al proveedor por email con Excel y PDF adjuntos."""
+        order = self.get_object()
+
+        if not order.provider:
+            return Response(
+                {"success": False, "detail": "La orden no tiene proveedor asociado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not order.provider.email:
+            return Response(
+                {"success": False, "detail": "El proveedor no tiene email configurado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        recipient = order.provider.email.strip()
+
+        try:
+            excel_file = build_purchase_order_excel(order)
+            pdf_file = build_purchase_order_pdf(order)
+
+            provider_name = order.provider.name or "Proveedor"
+            contact_name = order.provider.contact_person or provider_name
+
+            subject = f"Pedido de compra #{order.id} - {provider_name}"
+            body = (
+                f"Hola {contact_name},\n\n"
+                f"Adjuntamos el pedido de compra #{order.id} en formato Excel y PDF.\n\n"
+                f"Proveedor: {provider_name}\n"
+                f"Estado: {order.status}\n"
+                f"Fecha pedido: {order.created_at.strftime('%d/%m/%Y %H:%M') if order.created_at else ''}\n"
+                f"Notas: {order.notes or 'Sin notas'}\n\n"
+                f"Saludos,\n"
+                f"Kacha Digital BCN"
+            )
+
+            email = EmailMessage(
+                subject=subject,
+                body=body,
+                to=[recipient],
+            )
+
+            email.attach(
+                f"pedido_{order.id}.xlsx",
+                excel_file.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            email.attach(
+                f"pedido_{order.id}.pdf",
+                pdf_file.getvalue(),
+                "application/pdf",
+            )
+
+            email.send(fail_silently=False)
+
+            order.sent_at = timezone.now()
+            order.sent_to_email = recipient
+            order.sent_by = request.user
+
+            if order.status == PurchaseOrder.Status.PLACED:
+                order.status = PurchaseOrder.Status.IN_PROCESS
+
+            order.save(update_fields=["sent_at", "sent_to_email", "sent_by", "status", "updated_at"])
+
+            return Response(
+                {
+                    "success": True,
+                    "message": f"Pedido enviado correctamente a {recipient}",
+                    "order_id": order.id,
+                    "provider": provider_name,
+                    "email": recipient,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            return Response(
+                {
+                    "success": False,
+                    "detail": f"Error enviando email al proveedor: {str(e)}",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
     @action(detail=False, methods=["get"], url_path="has-ordered-today")
     def has_ordered_today(self, request):
         """Retorna si el usuario actual ha creado al menos una orden hoy.

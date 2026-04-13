@@ -33,6 +33,15 @@ class PurchaseOrder(models.Model):
     )
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT, db_index=True)
     notes = models.CharField(max_length=300, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    sent_to_email = models.EmailField(blank=True, default="")
+    sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sent_purchase_orders",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     history = HistoricalRecords()
