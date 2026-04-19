@@ -21,17 +21,18 @@ class ProviderSerializer(OrganizationSerializerMixin, serializers.ModelSerialize
     class Meta:
         model = Provider
         fields = (
-            "id",
-            "name",
-            "order_deadline_time",
-            "order_available_weekdays",
-            "order_available_dates",
-            "has_received_orders",
-            "has_draft_reception",
-            "draft_reception_order_id",
-            "last_shipped_order_id",
-        )
-
+	    "id",
+	    "name",
+	    "email",
+	    "contact_person",
+	    "order_deadline_time",
+	    "order_available_weekdays",
+	    "order_available_dates",
+	    "has_received_orders",
+	    "has_draft_reception",
+	    "draft_reception_order_id",
+	    "last_shipped_order_id",
+	)
     @extend_schema_field({
         "type": "object",
         "properties": {

@@ -1,0 +1,377 @@
+"""Admin configuration for purchase orders."""
+
+from collections import defaultdict
+from datetime import datetime
+
+from django.contrib import admin, messages
+from django.http import HttpResponse, HttpResponseRedirect
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
+from django.utils.html import format_html
+from django.utils.timezone import make_aware, now
+from simple_history.admin import SimpleHistoryAdmin
+
+from proveedores.models import Provider
+
+from .export_utils import (
+    build_purchase_order_excel,
+    build_purchase_order_pdf,
+    build_grouped_purchase_order_excel,
+    build_grouped_purchase_order_pdf,
+)
+from .models import PurchaseOrder, PurchaseOrderItem
+
+
+class PurchaseOrderItemInline(admin.TabularInline):
+    model = PurchaseOrderItem
+    extra = 1
+    fields = ("product", "quantity_units", "purchase_unit", "notes")
+    autocomplete_fields = ("product",)
+
+
+@admin.register(PurchaseOrder)
+class PurchaseOrderAdmin(SimpleHistoryAdmin):
+    list_display = (
+        "id",
+        "quick_actions",
+        "provider",
+        "market",
+        "status",
+        "ordered_by",
+        "sent_at",
+        "sent_to_email",
+        "sent_by",
+        "created_at",
+    )
+
+    list_filter = (
+        "provider",
+        "market",
+        "status",
+        "created_at",
+        "sent_at",
+    )
+
+    search_fields = (
+        "provider__name",
+        "market__name",
+        "ordered_by__username",
+        "sent_to_email",
+        "sent_by__username",
+        "notes",
+    )
+
+    inlines = [PurchaseOrderItemInline]
+    autocomplete_fields = ("provider", "market", "ordered_by", "sent_by")
+    ordering = ("-created_at",)
+
+    actions = (
+        "mark_as_draft",
+        "mark_as_placed",
+        "mark_as_received",
+        "mark_as_canceled",
+        "send_selected_orders",
+        "export_selected_excel",
+        "export_selected_pdf",
+        "merge_selected_orders",
+    )
+
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+        "sent_at",
+        "sent_to_email",
+        "sent_by",
+    )
+
+    fields = (
+        "provider",
+        "market",
+        "ordered_by",
+        "status",
+        "notes",
+        "sent_at",
+        "sent_to_email",
+        "sent_by",
+        "created_at",
+        "updated_at",
+    )
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "pivot/",
+                self.admin_site.admin_view(self.pivot_view),
+                name="purchaseorder_pivot",
+            ),
+            path(
+                "merge-preview/",
+                self.admin_site.admin_view(self.merge_preview_view),
+                name="purchaseorder_merge_preview",
+            ),
+            path(
+                "<int:order_id>/export-excel/",
+                self.admin_site.admin_view(self.export_excel_admin),
+                name="purchaseorder_export_excel",
+            ),
+            path(
+                "<int:order_id>/export-pdf/",
+                self.admin_site.admin_view(self.export_pdf_admin),
+                name="purchaseorder_export_pdf",
+            ),
+            path(
+                "<int:order_id>/send-email/",
+                self.admin_site.admin_view(self.send_email_admin),
+                name="purchaseorder_send_email",
+            ),
+        ]
+        return custom_urls + urls
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context["pivot_url"] = reverse("admin:purchaseorder_pivot")
+        extra_context["pivot_button_label"] = "Resumen por tiendas"
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def quick_actions(self, obj):
+        change_url = reverse("admin:purchase_orders_purchaseorder_change", args=[obj.pk])
+        excel_url = reverse("admin:purchaseorder_export_excel", args=[obj.pk])
+        pdf_url = reverse("admin:purchaseorder_export_pdf", args=[obj.pk])
+        send_url = reverse("admin:purchaseorder_send_email", args=[obj.pk])
+
+        return format_html(
+            '<a style="background:#2563eb;color:white;padding:4px 8px;border-radius:6px;margin-right:4px;text-decoration:none;" href="{}">Editar</a>'
+            '<a style="background:#16a34a;color:white;padding:4px 8px;border-radius:6px;margin-right:4px;text-decoration:none;" href="{}">Excel</a>'
+            '<a style="background:#ea580c;color:white;padding:4px 8px;border-radius:6px;margin-right:4px;text-decoration:none;" href="{}">PDF</a>'
+            '<a style="background:#10b981;color:white;padding:4px 8px;border-radius:6px;text-decoration:none;" href="{}">Enviar</a>',
+            change_url,
+            excel_url,
+            pdf_url,
+            send_url,
+        )
+
+    quick_actions.short_description = "Acciones"
+
+    def export_excel_admin(self, request, order_id):
+        order = (
+            PurchaseOrder.objects.select_related("provider", "market", "ordered_by")
+            .prefetch_related("items__product")
+            .get(pk=order_id)
+        )
+        file_data = build_purchase_order_excel(order)
+        return self._build_excel_response(file_data, order.id)
+
+    def export_pdf_admin(self, request, order_id):
+        order = (
+            PurchaseOrder.objects.select_related("provider", "market", "ordered_by")
+            .prefetch_related("items__product")
+            .get(pk=order_id)
+        )
+        file_data = build_purchase_order_pdf(order)
+        return self._build_pdf_response(file_data, order.id)
+
+    def send_email_admin(self, request, order_id):
+        order = PurchaseOrder.objects.select_related("provider", "market", "ordered_by").get(pk=order_id)
+
+        if not order.provider:
+            self.message_user(request, "La orden no tiene proveedor asociado.", level=messages.ERROR)
+            return HttpResponseRedirect(request.META.get("HTTP_REFERER", ".."))
+
+        if not order.provider.email:
+            self.message_user(request, "Proveedor sin email", level=messages.ERROR)
+            return HttpResponseRedirect(request.META.get("HTTP_REFERER", ".."))
+
+        try:
+            from django.core.mail import EmailMessage
+
+            excel_file = build_purchase_order_excel(order)
+            pdf_file = build_purchase_order_pdf(order)
+
+            email = EmailMessage(
+                subject=f"Pedido #{order.id}",
+                body="Adjuntamos el pedido en Excel y PDF.",
+                to=[order.provider.email.strip()],
+            )
+
+            email.attach(
+                f"pedido_{order.id}.xlsx",
+                excel_file.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            email.attach(
+                f"pedido_{order.id}.pdf",
+                pdf_file.getvalue(),
+                "application/pdf",
+            )
+
+            email.send(fail_silently=False)
+
+            order.sent_at = now()
+            order.sent_to_email = order.provider.email.strip()
+            order.sent_by = request.user
+
+            if order.status == PurchaseOrder.Status.PLACED:
+                order.status = PurchaseOrder.Status.IN_PROCESS
+
+            order.save(
+                update_fields=[
+                    "sent_at",
+                    "sent_to_email",
+                    "sent_by",
+                    "status",
+                    "updated_at",
+                ]
+            )
+
+            self.message_user(request, "Pedido enviado correctamente.", level=messages.SUCCESS)
+        except Exception as exc:
+            self.message_user(request, f"Error enviando pedido: {exc}", level=messages.ERROR)
+
+        return HttpResponseRedirect(request.META.get("HTTP_REFERER", ".."))
+
+    def _build_excel_response(self, file_data, order_id):
+        response = HttpResponse(
+            file_data.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = f'attachment; filename="pedido_{order_id}.xlsx"'
+        return response
+
+    def _build_pdf_response(self, file_data, order_id):
+        response = HttpResponse(
+            file_data.getvalue(),
+            content_type="application/pdf",
+        )
+        response["Content-Disposition"] = f'attachment; filename="pedido_{order_id}.pdf"'
+        return response
+
+    def pivot_view(self, request):
+        provider_id = request.GET.get("provider")
+        date_from = request.GET.get("date_from")
+        date_to = request.GET.get("date_to")
+        markets = request.GET.getlist("market")
+
+        context = dict(
+            self.admin_site.each_context(request),
+            title="Resumen de pedidos por tiendas",
+            opts=self.model._meta,
+            app_label=self.model._meta.app_label,
+        )
+
+        if not provider_id:
+            context.update({
+                "error": "Seleccione un proveedor (?provider=<id>) para ver el resumen.",
+            })
+            return TemplateResponse(
+                request,
+                "admin/purchase_orders/purchaseorder/pivot.html",
+                context,
+            )
+
+        try:
+            provider_id = int(provider_id)
+        except Exception:
+            context.update({"error": "El parámetro provider debe ser un entero."})
+            return TemplateResponse(
+                request,
+                "admin/purchase_orders/purchaseorder/pivot.html",
+                context,
+            )
+
+        provider_obj = Provider.objects.filter(id=provider_id).only("name").first()
+        context["provider_name"] = provider_obj.name if provider_obj else f"Proveedor {provider_id}"
+
+        items_qs = (
+            PurchaseOrderItem.objects.select_related("order", "order__provider", "order__market", "product")
+            .filter(order__provider_id=provider_id)
+        )
+
+        def parse_date(val):
+            try:
+                return make_aware(datetime.fromisoformat(val))
+            except Exception:
+                return None
+
+        if date_from:
+            dt = parse_date(date_from)
+            if dt:
+                items_qs = items_qs.filter(order__created_at__gte=dt)
+
+        if date_to:
+            dt = parse_date(date_to)
+            if dt:
+                items_qs = items_qs.filter(order__created_at__lte=dt)
+
+        if markets:
+            try:
+                market_ids = [int(m) for m in markets if int(m) > 0]
+                if market_ids:
+                    items_qs = items_qs.filter(order__market_id__in=market_ids)
+            except Exception:
+                pass
+
+        markets_list = []
+        markets_seen = set()
+        products_list = []
+        products_seen = set()
+        cell_map = {}
+
+        for it in items_qs.order_by("product__name", "order__market__name", "-order__created_at"):
+            m = it.order.market
+            p = it.product
+
+            if m and m.id not in markets_seen:
+                markets_seen.add(m.id)
+                markets_list.append({"id": m.id, "name": m.name})
+
+            if p and p.id not in products_seen:
+                products_seen.add(p.id)
+                products_list.append({"id": p.id, "name": p.name})
+
+            key = (p.id if p else None, m.id if m else None)
+            if key[0] is None or key[1] is None:
+                continue
+
+            existing = cell_map.get(key)
+            cur_tuple = (it.order.id, it.quantity_units, it.order.created_at)
+            if not existing or cur_tuple[2] > existing[2]:
+                cell_map[key] = cur_tuple
+
+        markets_list.sort(key=lambda x: x["name"] or "")
+        products_list.sort(key=lambda x: x["name"] or "")
+
+        rows = []
+        for prod in products_list:
+            row = {"product": prod, "entries": [], "total": 0}
+            for mk in markets_list:
+                key = (prod["id"], mk["id"])
+                cell = cell_map.get(key)
+                if cell:
+                    order_id, qty, _created = cell
+                    url = reverse("admin:purchase_orders_purchaseorder_change", args=[order_id])
+                    entry = {"market_id": mk["id"], "cell": {"qty": qty, "order_id": order_id, "url": url}}
+                    try:
+                        row["total"] += int(qty or 0)
+                    except Exception:
+                        pass
+                else:
+                    entry = {"market_id": mk["id"], "cell": None}
+                row["entries"].append(entry)
+            rows.append(row)
+
+        context.update({
+            "provider_id": provider_id,
+            "markets": markets_list,
+            "rows": rows,
+            "filters": {
+                "date_from": date_from or "",
+                "date_to": date_to or "",
+            },
+        })
+
+        return TemplateResponse(
+            request,
+            "admin/purchase_orders/purchaseorder/pivot.html",
+            context,
+        

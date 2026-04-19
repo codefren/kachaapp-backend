@@ -84,6 +84,7 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
     """Serializer for purchase orders."""
 
     provider_name = serializers.CharField(source="provider.name", read_only=True)
+    market_name = serializers.CharField(source="market.name", read_only=True)    
     ordered_by_username = serializers.CharField(source="ordered_by.username", read_only=True)
     items = PurchaseOrderItemSerializer(many=True, required=False)
     sent_by_username = serializers.CharField(source="sent_by.username", read_only=True)
@@ -103,6 +104,7 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             "status",
             "notes",
             "market",
+            "market_name",   
             "items",
             "sent_at",
             "sent_to_email",
