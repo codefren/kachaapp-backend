@@ -279,3 +279,4 @@ kachadigitalbcn/media/
 .envs/
 *.env
 !*.env.example
+.envs/

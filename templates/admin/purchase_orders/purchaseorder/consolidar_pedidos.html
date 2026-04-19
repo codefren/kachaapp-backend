@@ -1,0 +1,256 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+
+<h1 style="margin-bottom:24px;">📦 Consolidar y enviar pedidos por proveedor</h1>
+
+{% if messages %}
+  {% for message in messages %}
+    <div style="padding:12px 16px;margin-bottom:16px;border-radius:8px;
+      {% if message.tags == 'success' %}background:#dcfce7;border:1px solid #16a34a;color:#15803d;
+      {% elif message.tags == 'error' %}background:#fee2e2;border:1px solid #b91c1c;color:#b91c1c;
+      {% else %}background:#fef9c3;border:1px solid #ca8a04;color:#854d0e;{% endif %}">
+      {{ message }}
+    </div>
+  {% endfor %}
+{% endif %}
+
+<!-- PASO 1: Seleccionar proveedor -->
+<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:20px;margin-bottom:24px;">
+  <h2 style="margin:0 0 16px 0;font-size:16px;color:#1e3a5f;">Paso 1 — Selecciona un proveedor</h2>
+  <form method="get">
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+      <select name="provider_id" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:15px;min-width:280px;">
+        <option value="">-- Selecciona proveedor --</option>
+        {% for p in all_providers %}
+          <option value="{{ p.id }}" {% if p.id == selected_provider_id %}selected{% endif %}>
+            {{ p.name }}{% if p.email %} — {{ p.email }}{% else %} ⚠ Sin email{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+
+      <select name="date_filter" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:15px;">
+        <option value="today" {% if date_filter == 'today' %}selected{% endif %}>Hoy</option>
+        <option value="week" {% if date_filter == 'week' %}selected{% endif %}>Últimos 7 días</option>
+        <option value="month" {% if date_filter == 'month' %}selected{% endif %}>Últimos 30 días</option>
+        <option value="all" {% if date_filter == 'all' %}selected{% endif %}>Todos</option>
+      </select>
+
+      <button type="submit" style="background:#1e3a5f;color:white;padding:8px 20px;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">
+        Ver pedidos →
+      </button>
+    </div>
+  </form>
+</div>
+
+{% if selected_provider_id %}
+
+  {% if not orders %}
+    <div style="padding:20px;background:#fef9c3;border:1px solid #ca8a04;border-radius:8px;color:#854d0e;">
+      No hay pedidos para este proveedor en el período seleccionado.
+    </div>
+
+  {% else %}
+
+  <!-- PASO 2: Tabla pivot editable -->
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="provider_id" value="{{ selected_provider_id }}">
+
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:20px;margin-bottom:24px;">
+      <h2 style="margin:0 0 4px 0;font-size:16px;color:#1e3a5f;">Paso 2 — Revisa y edita las cantidades</h2>
+      <p style="margin:0 0 16px 0;color:#64748b;font-size:13px;">
+        Marca las tiendas que quieres incluir en el envío. Edita las cantidades si es necesario.
+      </p>
+
+      <!-- Cabecera con checkboxes de tiendas -->
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;background:white;font-size:13px;">
+          <thead>
+            <tr style="background:#1e3a5f;color:white;">
+              <th style="border:1px solid #334155;padding:10px 12px;text-align:left;min-width:220px;position:sticky;left:0;background:#1e3a5f;">
+                Producto
+              </th>
+              {% for order in orders %}
+                <th style="border:1px solid #334155;padding:8px;text-align:center;min-width:110px;">
+                  <div style="font-weight:700;margin-bottom:4px;">{{ order.market_name }}</div>
+                  <div style="font-size:11px;opacity:0.8;margin-bottom:6px;">Pedido #{{ order.order_id }}</div>
+                  <label style="display:flex;align-items:center;justify-content:center;gap:4px;cursor:pointer;">
+                    <input
+                      type="checkbox"
+                      name="include_order_{{ order.order_id }}"
+                      value="{{ order.order_id }}"
+                      {% if order.order_id in included_orders or not request.POST %}checked{% endif %}
+                      onchange="toggleColumn({{ forloop.counter0 }}, this.checked)"
+                      style="width:16px;height:16px;cursor:pointer;"
+                    >
+                    <span style="font-size:11px;">Incluir</span>
+                  </label>
+                  <div style="font-size:10px;margin-top:4px;
+                    {% if order.status == 'IN_PROCESS' %}color:#86efac;
+                    {% elif order.status == 'PLACED' %}color:#fde68a;
+                    {% else %}color:#cbd5e1;{% endif %}">
+                    {{ order.status }}
+                  </div>
+                </th>
+              {% endfor %}
+              <th style="border:1px solid #334155;padding:10px;text-align:center;min-width:70px;background:#0f2744;">
+                Total
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr style="{% cycle 'background:#f8fafc;' 'background:white;' %}" id="row-{{ row.product_id }}">
+                <td style="border:1px solid #e2e8f0;padding:8px 12px;font-weight:600;position:sticky;left:0;background:inherit;">
+                  {{ row.product_name }}
+                  {% if row.sku %}<div style="font-size:11px;color:#94a3b8;">{{ row.sku }}</div>{% endif %}
+                </td>
+                {% for cell in row.cells %}
+                  <td style="border:1px solid #e2e8f0;padding:4px;text-align:center;" class="col-{{ forloop.counter0 }}">
+                    <input
+                      type="number"
+                      name="qty_{{ row.product_id }}_{{ cell.order_id }}"
+                      value="{{ cell.qty }}"
+                      min="0"
+                      data-product="{{ row.product_id }}"
+                      data-col="{{ forloop.counter0 }}"
+                      class="qty-input"
+                      style="width:65px;text-align:center;border:1px solid #cbd5e1;border-radius:6px;padding:4px;font-size:13px;
+                        {% if cell.qty > 0 %}background:#f0fdf4;{% else %}background:#f9fafb;color:#94a3b8;{% endif %}"
+                    >
+                  </td>
+                {% endfor %}
+                <td style="border:1px solid #e2e8f0;padding:8px;text-align:center;font-weight:700;background:#f0f9ff;" id="rowtotal-{{ row.product_id }}">
+                  {{ row.total }}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr style="background:#1e3a5f;color:white;font-weight:700;">
+              <th style="border:1px solid #334155;padding:10px 12px;text-align:left;position:sticky;left:0;background:#1e3a5f;">
+                Totales
+              </th>
+              {% for total in totals_row %}
+                <th style="border:1px solid #334155;padding:10px;text-align:center;" class="col-total-{{ forloop.counter0 }}">
+                  {{ total }}
+                </th>
+              {% endfor %}
+              <th style="border:1px solid #334155;padding:10px;text-align:center;background:#0f2744;" id="grand-total">
+                {{ grand_total }}
+              </th>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+    <!-- PASO 3: Opciones de envío -->
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:20px;margin-bottom:24px;">
+      <h2 style="margin:0 0 16px 0;font-size:16px;color:#1e3a5f;">Paso 3 — Opciones de envío</h2>
+
+      <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:20px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:15px;">
+          <input type="checkbox" name="attach_excel" value="1" checked style="width:18px;height:18px;">
+          📊 Adjuntar Excel consolidado
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:15px;">
+          <input type="checkbox" name="attach_pdf" value="1" checked style="width:18px;height:18px;">
+          📄 Adjuntar PDF consolidado
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:15px;">
+          <input type="checkbox" name="attach_individual" value="1" style="width:18px;height:18px;">
+          📎 Adjuntar también pedidos individuales
+        </label>
+      </div>
+
+      {% if provider_email %}
+        <p style="margin:0 0 16px 0;color:#475569;font-size:14px;">
+          ✉ Se enviará a: <strong>{{ provider_email }}</strong>
+        </p>
+      {% else %}
+        <p style="margin:0 0 16px 0;color:#b91c1c;font-size:14px;">
+          ⚠ Este proveedor no tiene email configurado. Solo podrás guardar cambios o descargar.
+        </p>
+      {% endif %}
+
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <button type="submit" name="action" value="save"
+          style="background:#2563eb;color:white;padding:10px 24px;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">
+          💾 Guardar cambios
+        </button>
+        <button type="submit" name="action" value="download_excel"
+          style="background:#16a34a;color:white;padding:10px 24px;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">
+          ⬇ Descargar Excel
+        </button>
+        <button type="submit" name="action" value="download_pdf"
+          style="background:#ea580c;color:white;padding:10px 24px;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">
+          ⬇ Descargar PDF
+        </button>
+        {% if provider_email %}
+          <button type="submit" name="action" value="send"
+            style="background:#0f172a;color:white;padding:10px 24px;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">
+            ✉ Guardar y enviar al proveedor
+          </button>
+        {% endif %}
+        <a href="{% url 'admin:purchase_orders_purchaseorder_changelist' %}"
+          style="background:#94a3b8;color:white;padding:10px 24px;border-radius:8px;font-size:15px;font-weight:600;text-decoration:none;display:inline-block;">
+          ← Volver
+        </a>
+      </div>
+    </div>
+
+  </form>
+  {% endif %}
+{% endif %}
+
+<script>
+// Recalcular totales al editar cantidades
+document.querySelectorAll('.qty-input').forEach(function(input) {
+  input.addEventListener('input', function() {
+    var productId = this.dataset.product;
+    var colIdx = parseInt(this.dataset.col);
+
+    // Total fila
+    var rowTotal = 0;
+    document.querySelectorAll('.qty-input[data-product="' + productId + '"]').forEach(function(inp) {
+      if (!inp.disabled) rowTotal += parseInt(inp.value || 0);
+    });
+    var rowEl = document.getElementById('rowtotal-' + productId);
+    if (rowEl) rowEl.textContent = rowTotal;
+
+    // Total columna
+    var colTotal = 0;
+    document.querySelectorAll('.qty-input[data-col="' + colIdx + '"]').forEach(function(inp) {
+      if (!inp.disabled) colTotal += parseInt(inp.value || 0);
+    });
+    var colTotalEl = document.querySelector('.col-total-' + colIdx);
+    if (colTotalEl) colTotalEl.textContent = colTotal;
+
+    // Gran total
+    var grandTotal = 0;
+    document.querySelectorAll('.qty-input').forEach(function(inp) {
+      if (!inp.disabled) grandTotal += parseInt(inp.value || 0);
+    });
+    document.getElementById('grand-total').textContent = grandTotal;
+
+    // Color
+    this.style.background = (parseInt(this.value || 0) > 0) ? '#f0fdf4' : '#f9fafb';
+    this.style.color = (parseInt(this.value || 0) > 0) ? '' : '#94a3b8';
+  });
+});
+
+// Activar/desactivar columna al marcar/desmarcar checkbox
+function toggleColumn(colIdx, enabled) {
+  document.querySelectorAll('.col-' + colIdx + ' .qty-input').forEach(function(inp) {
+    inp.disabled = !enabled;
+    inp.style.opacity = enabled ? '1' : '0.3';
+  });
+  // Recalcular totales
+  document.querySelectorAll('.qty-input').forEach(function(inp) {
+    inp.dispatchEvent(new Event('input'));
+  });
+}
+</script>
+
+{% endblock %}

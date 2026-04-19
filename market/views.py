@@ -8,10 +8,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from market.services.temperature_ocr import extract_temperature_from_uploaded_file
+
 
 from .models import LoginHistory, Market, Shift
 from .serializers import (
@@ -32,37 +29,6 @@ class MarketLoginHistoryMixin:
                 longitude=longitude,
                 event_type=event_type,
             )
-
- class MarketProximityTokenRefreshView(MarketLoginHistoryMixin, TokenRefreshView):
-    serializer_class = MarketProximityTokenRefreshSerializer
-
-    def post(self, request, *args, **kwargs):
-        latitude = request.data.get("latitude")
-        longitude = request.data.get("longitude")
-
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        market = getattr(serializer, "_market", None)
-
-        user = request.user if getattr(request.user, "is_authenticated", False) else None
-
-        self.log_login_history(
-            user,
-            market,
-            latitude,
-            longitude,
-            LoginHistory.REFRESH,
-        )
-
-        return Response(serializer.validated_data, status=status.HTTP_200_OK)
-
-
-
-
-
-
-
 
 
 class MarketProximityTokenObtainPairView(MarketLoginHistoryMixin, TokenObtainPairView):
@@ -86,54 +52,7 @@ class MarketProximityTokenObtainPairView(MarketLoginHistoryMixin, TokenObtainPai
             LoginHistory.LOGIN,
         )
 
-        return Response(serializer.validated_data, status=status.HTTP_200_OK)1~class MarketProximityTokenObtainPairView(MarketLoginHistoryMixin, TokenObtainPairView):
-    serializer_class = MarketProximityTokenObtainPairSerializer
-
-    def post(self, request, *args, **kwargs):
-        latitude = request.data.get("latitude")
-        longitude = request.data.get("longitude")
-
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        market = getattr(serializer, "_market", None)
-        user = getattr(serializer, "user", None)
-
-        self.log_login_history(
-            user,
-            market,
-            latitude,
-            longitude,
-            LoginHistory.LOGIN,
-        )
-
-        return Response(serializer.validated_data, status=status.HTTP_200_OK)1~class MarketProximityTokenObtainPairView(MarketLoginHistoryMixin, TokenObtainPairView):
-    serializer_class = MarketProximityTokenObtainPairSerializer
-
-    def post(self, request, *args, **kwargs):
-        latitude = request.data.get("latitude")
-        longitude = request.data.get("longitude")
-
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        market = getattr(serializer, "_market", None)
-        user = getattr(serializer, "user", None)
-
-        self.log_login_history(
-            user,
-            market,
-            latitude,
-            longitude,
-            LoginHistory.LOGIN,
-        )
-
         return Response(serializer.validated_data, status=status.HTTP_200_OK)
-
-
-
-
-
 
 
 class MarketProximityTokenRefreshView(MarketLoginHistoryMixin, TokenRefreshView):
@@ -143,28 +62,26 @@ class MarketProximityTokenRefreshView(MarketLoginHistoryMixin, TokenRefreshView)
         latitude = request.data.get("latitude")
         longitude = request.data.get("longitude")
 
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        market = getattr(serializer, "_market", None)
-
-        self.log_login_history(request.user, market, latitude, longitude, LoginHistory.REFRESH)
-
-        return Response(serializer.validated_data, status=200)
-           
-        )
-
         try:
             serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
 
-            if serializer.is_valid(raise_exception=True):
-                market = getattr(serializer, "_market", None)
-                user = getattr(serializer, "user", None) or request.user
-                self.log_login_history(user, market, latitude, longitude, LoginHistory.REFRESH)
+            market = getattr(serializer, "_market", None)
+            user = (
+                request.user
+                if getattr(request.user, "is_authenticated", False)
+                else None
+            )
 
-            response = super().post(request, *args, **kwargs)
-            logger.info("[MarketProximity] Token refreshed successfully status=%s", response.status_code)
-            return response
+            self.log_login_history(
+                user,
+                market,
+                latitude,
+                longitude,
+                LoginHistory.REFRESH,
+            )
+
+            return Response(serializer.validated_data, status=status.HTTP_200_OK)
 
         except ValidationError as e:
             logger.warning(
@@ -241,6 +158,17 @@ def _serialize_today_shift(shift):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def temperature_ocr(request):
+    try:
+        from market.services.temperature_ocr import extract_temperature_from_uploaded_file
+    except ModuleNotFoundError:
+        return Response(
+            {
+                "success": False,
+                "message": "El servicio OCR no está instalado en este entorno.",
+            },
+            status=503,
+        )
+
     image = request.FILES.get("image")
 
     if not image:
@@ -251,10 +179,12 @@ def temperature_ocr(request):
 
     result = extract_temperature_from_uploaded_file(image)
 
-    return Response({
-        "success": True,
-        "data": result,
-    })
+    return Response(
+        {
+            "success": True,
+            "data": result,
+        }
+    )
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -285,7 +215,9 @@ def shift_start(request):
     latitude = request.data.get("latitude")
     longitude = request.data.get("longitude")
 
-    market = _nearest_market(latitude, longitude) or _latest_market_for_user(request.user)
+    market = _nearest_market(latitude, longitude) or _latest_market_for_user(
+        request.user
+    )
 
     shift = Shift.objects.create(
         user=request.user,
@@ -457,7 +389,9 @@ def shift_me_calendar(request):
                 "workedSeconds": worked_seconds,
                 "breakSeconds": break_seconds,
                 "netSeconds": worked_seconds,
-                "status": "BREAK" if shift.on_break else ("WORKING" if shift.is_open else "OFF"),
+                "status": (
+                    "BREAK" if shift.on_break else ("WORKING" if shift.is_open else "OFF")
+                ),
                 "marketName": shift.market.name if shift.market else None,
                 "startedAt": shift.started_at.isoformat(),
                 "endedAt": shift.ended_at.isoformat() if shift.ended_at else None,

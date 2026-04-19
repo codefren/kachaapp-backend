@@ -1,0 +1,281 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+
+<style>
+  .consolidar-wrap { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+  .step-box { background:white; border:1px solid #e2e8f0; border-radius:12px; padding:24px; margin-bottom:20px; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+  .step-title { font-size:16px; font-weight:700; color:#1e3a5f; margin:0 0 16px 0; padding-bottom:12px; border-bottom:2px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center; }
+  .pivot-table { width:100%; border-collapse:collapse; font-size:14px; }
+  .pivot-table thead tr { background:#166534; }
+  .pivot-table thead th { padding:14px 16px; border:1px solid #14532d; text-align:center; white-space:nowrap; color:white !important; vertical-align:middle; background:#166534; }
+  .pivot-table thead th.col-product { text-align:left; min-width:260px; font-size:15px; }
+  .pivot-table thead th.col-market { min-width:150px; }
+  .pivot-table thead th.col-total { min-width:100px; background:#d97706; color:white; font-size:16px; font-weight:800; }
+  .market-header-name { font-weight:800; font-size:16px; margin-bottom:5px; color:white; }
+  .market-header-order { font-size:13px; color:#94a3b8; margin-bottom:6px; }
+  .market-header-status { font-size:13px; font-weight:700; padding:4px 10px; border-radius:5px; display:inline-block; margin-bottom:8px; }
+  .status-in-process { background:#166534; color:#bbf7d0; }
+  .status-placed { background:#92400e; color:#fde68a; }
+  .status-draft { background:#374151; color:#e5e7eb; }
+  .include-label { display:flex; align-items:center; justify-content:center; gap:7px; cursor:pointer; font-size:14px; color:white; font-weight:700; margin-top:4px; }
+  .include-label input[type=checkbox] { width:18px; height:18px; cursor:pointer; accent-color:#f59e0b; }
+  .pivot-table tbody tr:nth-child(odd) { background:#f8fafc; }
+  .pivot-table tbody tr:nth-child(even) { background:white; }
+  .pivot-table tbody tr:hover { background:#eff6ff; }
+  .pivot-table td { border:1px solid #e2e8f0; padding:10px 12px; vertical-align:middle; }
+  .pivot-table td.td-product { font-weight:700; color:#0f172a; font-size:14px; }
+  .td-sku { font-size:12px; color:#64748b; margin-top:3px; font-weight:500; }
+  .pivot-table td.td-qty { text-align:center; padding:6px; }
+  .pivot-table td.td-total { text-align:center; font-weight:800; background:#fef3c7; color:#92400e; border-left:3px solid #d97706; font-size:16px; }
+  .pivot-table tfoot tr { background:#166534; }
+  .pivot-table tfoot th { border:1px solid #14532d; padding:12px 16px; text-align:center; color:white; font-size:15px; font-weight:700; }
+  .pivot-table tfoot th.tf-product { text-align:left; }
+  .pivot-table tfoot th.tf-grand { background:#d97706; color:white; font-weight:800; font-size:18px; }
+  .qty-input { width:75px; text-align:center; border:2px solid #cbd5e1; border-radius:6px; padding:7px 4px; font-size:15px; transition:all 0.15s; }
+  .qty-input:focus { outline:none; border-color:#3b82f6; box-shadow:0 0 0 3px rgba(59,130,246,0.15); }
+  .qty-input.has-value { background:#f0fdf4; color:#15803d; border-color:#4ade80; font-weight:700; }
+  .qty-input.no-value { background:#f9fafb; color:#cbd5e1; }
+  .options-grid { display:flex; gap:24px; flex-wrap:wrap; margin-bottom:18px; }
+  .option-label { display:flex; align-items:center; gap:9px; cursor:pointer; font-size:15px; color:#1e293b; font-weight:600; }
+  .option-label input { width:18px; height:18px; cursor:pointer; accent-color:#2563eb; }
+  .email-badge { display:inline-flex; align-items:center; gap:8px; background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; padding:10px 18px; border-radius:8px; font-size:15px; font-weight:600; margin-bottom:18px; }
+  .no-email-badge { display:inline-flex; align-items:center; gap:8px; background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; padding:10px 18px; border-radius:8px; font-size:15px; font-weight:600; margin-bottom:18px; }
+  .btn-row { display:flex; gap:12px; flex-wrap:wrap; }
+  .btn { padding:12px 26px; border:none; border-radius:8px; font-size:15px; font-weight:700; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:7px; transition:opacity 0.15s; }
+  .btn:hover { opacity:0.85; }
+  .btn-save { background:#2563eb; color:white; }
+  .btn-excel { background:#16a34a; color:white; }
+  .btn-pdf { background:#ea580c; color:white; }
+  .btn-send { background:#0f172a; color:white; }
+  .btn-back { background:#94a3b8; color:white; }
+  .grand-total-display { font-size:20px; font-weight:800; color:#d97706; }
+  .msg-success { padding:13px 18px; margin-bottom:16px; border-radius:8px; background:#dcfce7; border:1px solid #16a34a; color:#15803d; font-weight:600; font-size:15px; }
+  .msg-error { padding:13px 18px; margin-bottom:16px; border-radius:8px; background:#fee2e2; border:1px solid #b91c1c; color:#b91c1c; font-weight:600; font-size:15px; }
+  .msg-warning { padding:13px 18px; margin-bottom:16px; border-radius:8px; background:#fef9c3; border:1px solid #ca8a04; color:#854d0e; font-weight:600; font-size:15px; }
+  .form-row { display:flex; gap:20px; align-items:flex-end; flex-wrap:wrap; }
+  .form-group { display:flex; flex-direction:column; gap:6px; }
+  .form-label { font-size:13px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.5px; }
+  .provider-select { padding:12px 16px; border:2px solid #cbd5e1; border-radius:8px; font-size:15px; width:480px; color:#0f172a; background:white; height:48px; }
+  .provider-select:focus { outline:none; border-color:#2563eb; }
+  .period-select { padding:12px 16px; border:2px solid #cbd5e1; border-radius:8px; font-size:15px; color:#0f172a; background:white; min-width:180px; height:48px; }
+  .period-select:focus { outline:none; border-color:#2563eb; }
+</style>
+
+<div class="consolidar-wrap">
+<h1 style="margin-bottom:22px;color:#0f172a;font-size:24px;font-weight:800;">📦 Consolidar y enviar pedidos por proveedor</h1>
+
+{% if messages %}
+  {% for message in messages %}
+    <div class="{% if message.tags == 'success' %}msg-success{% elif message.tags == 'error' %}msg-error{% else %}msg-warning{% endif %}">
+      {{ message }}
+    </div>
+  {% endfor %}
+{% endif %}
+
+<!-- PASO 1 -->
+<div class="step-box">
+  <div class="step-title">Paso 1 — Selecciona un proveedor y período</div>
+  <form method="get">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Proveedor</label>
+        <select name="provider_id" class="provider-select">
+          <option value="">-- Selecciona un proveedor --</option>
+          {% for p in all_providers %}
+            <option value="{{ p.id }}" {% if p.id == selected_provider_id %}selected{% endif %}>
+              {{ p.name }}{% if p.email %} — {{ p.email }}{% else %} ⚠ Sin email{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Período</label>
+        <select name="date_filter" class="period-select">
+          <option value="today" {% if date_filter == 'today' %}selected{% endif %}>Hoy</option>
+          <option value="week" {% if date_filter == 'week' %}selected{% endif %}>Últimos 7 días</option>
+          <option value="month" {% if date_filter == 'month' %}selected{% endif %}>Últimos 30 días</option>
+          <option value="all" {% if date_filter == 'all' %}selected{% endif %}>Todos</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">&nbsp;</label>
+        <button type="submit" class="btn btn-save" style="height:48px;">Ver pedidos →</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+{% if selected_provider_id %}
+  {% if not orders %}
+    <div class="msg-warning">⚠ No hay pedidos para este proveedor en el período seleccionado.</div>
+  {% else %}
+
+  <form method="post" id="main-form">
+    {% csrf_token %}
+    <input type="hidden" name="provider_id" value="{{ selected_provider_id }}">
+
+    <!-- PASO 2 -->
+    <div class="step-box">
+      <div class="step-title">
+        <span>Paso 2 — Revisa y edita las cantidades</span>
+        <span style="font-weight:600;font-size:15px;color:#475569;">
+          Total: <span class="grand-total-display" id="grand-total">{{ grand_total }}</span> uds.
+        </span>
+      </div>
+
+      <div style="overflow-x:auto;">
+        <table class="pivot-table">
+          <thead>
+            <tr>
+              <th class="col-product">Producto</th>
+              {% for order in orders %}
+                <th class="col-market">
+                  <div class="market-header-name">{{ order.market_name }}</div>
+                  <div class="market-header-order">Pedido #{{ order.order_id }}</div>
+                  <div>
+                    <span class="market-header-status {% if order.status == 'IN_PROCESS' %}status-in-process{% elif order.status == 'PLACED' %}status-placed{% else %}status-draft{% endif %}">
+                      {{ order.status }}
+                    </span>
+                  </div>
+                  <label class="include-label">
+                    <input
+                      type="checkbox"
+                      name="include_order_{{ order.order_id }}"
+                      value="{{ order.order_id }}"
+                      {% if order.order_id in included_orders %}checked{% endif %}
+                      onchange="toggleColumn({{ forloop.counter0 }}, this.checked)"
+                    >
+                    Incluir
+                  </label>
+                </th>
+              {% endfor %}
+              <th class="col-total">TOTAL</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td class="td-product">
+                  {{ row.product_name }}
+                  {% if row.sku %}<div class="td-sku">{{ row.sku }}</div>{% endif %}
+                </td>
+                {% for cell in row.cells %}
+                  <td class="td-qty col-{{ forloop.counter0 }}">
+                    <input
+                      type="number"
+                      name="qty_{{ row.product_id }}_{{ cell.order_id }}"
+                      value="{{ cell.qty }}"
+                      min="0"
+                      data-product="{{ row.product_id }}"
+                      data-col="{{ forloop.counter0 }}"
+                      class="qty-input {% if cell.qty > 0 %}has-value{% else %}no-value{% endif %}"
+                    >
+                  </td>
+                {% endfor %}
+                <td class="td-total" id="rowtotal-{{ row.product_id }}">{{ row.total }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr>
+              <th class="tf-product">Totales</th>
+              {% for total in totals_row %}
+                <th class="col-total-{{ forloop.counter0 }}">{{ total }}</th>
+              {% endfor %}
+              <th class="tf-grand" id="foot-grand-total">{{ grand_total }}</th>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+    <!-- PASO 3 -->
+    <div class="step-box">
+      <div class="step-title">Paso 3 — Opciones de envío</div>
+
+      <div class="options-grid">
+        <label class="option-label">
+          <input type="checkbox" name="attach_excel" value="1" checked>
+          📊 Adjuntar Excel consolidado
+        </label>
+        <label class="option-label">
+          <input type="checkbox" name="attach_pdf" value="1" checked>
+          📄 Adjuntar PDF consolidado
+        </label>
+        <label class="option-label">
+          <input type="checkbox" name="attach_individual" value="1">
+          📎 Adjuntar pedidos individuales
+        </label>
+      </div>
+
+      {% if provider_email %}
+        <div class="email-badge">✉ Se enviará a: <strong>{{ provider_email }}</strong></div>
+      {% else %}
+        <div class="no-email-badge">⚠ Proveedor sin email — solo podrás guardar o descargar</div>
+      {% endif %}
+
+      <div class="btn-row">
+        <button type="submit" name="action" value="save" class="btn btn-save">💾 Guardar cambios</button>
+        <button type="submit" name="action" value="download_excel" class="btn btn-excel">⬇ Descargar Excel</button>
+        <button type="submit" name="action" value="download_pdf" class="btn btn-pdf">⬇ Descargar PDF</button>
+        {% if provider_email %}
+          <button type="submit" name="action" value="send" class="btn btn-send">✉ Guardar y enviar al proveedor</button>
+        {% endif %}
+        <a href="{% url 'admin:purchase_orders_purchaseorder_changelist' %}" class="btn btn-back">← Volver</a>
+      </div>
+    </div>
+
+  </form>
+  {% endif %}
+{% endif %}
+</div>
+
+<script>
+document.querySelectorAll('.qty-input').forEach(function(inp) {
+  inp.addEventListener('input', function() {
+    var v = parseInt(this.value || 0);
+    this.className = 'qty-input ' + (v > 0 ? 'has-value' : 'no-value');
+    recalc();
+  });
+});
+
+function recalc() {
+  var grandTotal = 0;
+  var colTotals = {};
+
+  document.querySelectorAll('tbody tr').forEach(function(row) {
+    var productId = null;
+    var rowTotal = 0;
+    row.querySelectorAll('.qty-input:not([disabled])').forEach(function(inp) {
+      productId = inp.dataset.product;
+      var col = inp.dataset.col;
+      var v = parseInt(inp.value || 0);
+      rowTotal += v;
+      grandTotal += v;
+      colTotals[col] = (colTotals[col] || 0) + v;
+    });
+    if (productId) {
+      var el = document.getElementById('rowtotal-' + productId);
+      if (el) el.textContent = rowTotal;
+    }
+  });
+
+  Object.keys(colTotals).forEach(function(col) {
+    var el = document.querySelector('.col-total-' + col);
+    if (el) el.textContent = colTotals[col];
+  });
+
+  document.getElementById('grand-total').textContent = grandTotal;
+  document.getElementById('foot-grand-total').textContent = grandTotal;
+}
+
+function toggleColumn(colIdx, enabled) {
+  document.querySelectorAll('.col-' + colIdx + ' .qty-input').forEach(function(inp) {
+    inp.disabled = !enabled;
+    inp.closest('td').style.opacity = enabled ? '1' : '0.25';
+  });
+  recalc();
+}
+</script>
+
+{% endblock %}

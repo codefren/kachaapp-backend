@@ -1,33 +1,627 @@
 """Views for purchase orders."""
 import datetime
-from django.db.models import Prefetch
-from django.utils import timezone
-from django.http import HttpResponse
+from collections import defaultdict
+
 from django.core.mail import EmailMessage
+from django.db import transaction
+from django.db.models import Prefetch
+from django.http import HttpResponse
+from django.utils import timezone
+
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+
+from kachadigitalbcn.common.permissions import IsMasterUser
 from kachadigitalbcn.users.mixins import (
+    OrganizationPermissionMixin,
     OrganizationQuerySetMixin,
-    OrganizationPermissionMixin
 )
+from market.models import Market
+from proveedores.models import Product, ProductBarcode
 
-from proveedores.models import ProductBarcode
-from .export_utils import build_purchase_order_excel, build_purchase_order_pdf
+from .export_utils import (
+    build_grouped_purchase_order_excel,
+    build_grouped_purchase_order_pdf,
+    build_purchase_order_excel,
+    build_purchase_order_pdf,
+)
 from .models import PurchaseOrder, PurchaseOrderItem
-from .serializers import PurchaseOrderSerializer, PurchaseOrderItemSerializer
+from .serializers import PurchaseOrderItemSerializer, PurchaseOrderSerializer
 
 
-class PurchaseOrderViewSet(OrganizationQuerySetMixin, OrganizationPermissionMixin, viewsets.ModelViewSet):
+class PurchaseOrderViewSet(
+    OrganizationQuerySetMixin,
+    OrganizationPermissionMixin,
+    viewsets.ModelViewSet,
+):
     """ViewSet para órdenes de compra con filtrado automático por organización."""
-    
-    queryset = PurchaseOrder.objects.select_related("provider", "ordered_by", "market").prefetch_related(
-        Prefetch("items", queryset=PurchaseOrderItem.objects.select_related("product").order_by("-created_at"))
+
+    queryset = PurchaseOrder.objects.select_related(
+        "provider",
+        "ordered_by",
+        "market",
+        "sent_by",
+        "locked_by",
+    ).prefetch_related(
+        Prefetch(
+            "items",
+            queryset=PurchaseOrderItem.objects.select_related("product").order_by("-created_at"),
+        )
     )
     serializer_class = PurchaseOrderSerializer
     permission_classes = [permissions.IsAuthenticated]
     http_method_names = ["get", "post", "put", "patch", "head", "options"]
-    organization_field_path = 'market__organization'  # PurchaseOrder -> Market -> Organization
+    organization_field_path = "market__organization"
+
+    def _build_order_email_body(self, order):
+        provider_name = order.provider.name or "Proveedor"
+        contact_name = order.provider.contact_person or provider_name
+
+        return (
+            "Hola {},\n\n"
+            "Adjuntamos el pedido de compra #{} en formato Excel y PDF.\n\n"
+            "Proveedor: {}\n"
+            "Tienda: {}\n"
+            "Estado: {}\n"
+            "Fecha pedido: {}\n"
+            "Notas: {}\n\n"
+            "Saludos,\n"
+            "Kacha Digital BCN"
+        ).format(
+            contact_name,
+            order.id,
+            provider_name,
+            order.market.name if order.market else "Sin tienda",
+            order.status,
+            order.created_at.strftime("%d/%m/%Y %H:%M") if order.created_at else "",
+            order.notes or "Sin notas",
+        )
+
+    def _mark_order_as_sent(self, order, recipient, user):
+        order.sent_at = timezone.now()
+        order.sent_to_email = recipient
+        order.sent_by = user
+
+        if order.status == PurchaseOrder.Status.PLACED:
+            order.status = PurchaseOrder.Status.IN_PROCESS
+
+        order.save(
+            update_fields=[
+                "sent_at",
+                "sent_to_email",
+                "sent_by",
+                "status",
+                "updated_at",
+            ]
+        )
+
+    def _send_single_order_email(self, order, user):
+        if not order.provider:
+            raise ValueError("La orden no tiene proveedor asociado.")
+
+        if not order.provider.email:
+            raise ValueError("El proveedor no tiene email configurado.")
+
+        recipient = order.provider.email.strip()
+
+        excel_file = build_purchase_order_excel(order)
+        pdf_file = build_purchase_order_pdf(order)
+
+        provider_name = order.provider.name or "Proveedor"
+
+        email = EmailMessage(
+            subject="Pedido de compra #{} - {}".format(order.id, provider_name),
+            body=self._build_order_email_body(order),
+            to=[recipient],
+        )
+
+        email.attach(
+            "pedido_{}.xlsx".format(order.id),
+            excel_file.getvalue(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        email.attach(
+            "pedido_{}.pdf".format(order.id),
+            pdf_file.getvalue(),
+            "application/pdf",
+        )
+
+        email.send(fail_silently=False)
+        self._mark_order_as_sent(order, recipient, user)
+
+        return recipient
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="pivot",
+        permission_classes=[permissions.IsAuthenticated, IsMasterUser],
+    )
+    def pivot(self, request):
+        """
+        Vista pivot:
+        filas = productos
+        columnas = tiendas
+        total = suma horizontal por producto
+        """
+        provider_id = request.query_params.get("provider")
+
+        if not provider_id:
+            return Response(
+                {"detail": "El parámetro 'provider' es requerido."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            provider_id_int = int(provider_id)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "El parámetro 'provider' debe ser un entero."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        orders = (
+            self.get_queryset()
+            .filter(provider_id=provider_id_int)
+            .select_related("market", "provider")
+            .prefetch_related("items__product")
+            .order_by("market__name", "created_at")
+        )
+
+        markets = {}
+        products = {}
+
+        for order in orders:
+            market_id = order.market.id if order.market else None
+            market_name = order.market.name if order.market else "Sin tienda"
+
+            markets[market_id] = {
+                "id": market_id,
+                "name": market_name,
+                "order_id": order.id,
+                "status": order.status,
+                "sent": bool(order.sent_at),
+                "sent_at": order.sent_at,
+                "is_locked": order.is_locked,
+                "locked_by": order.locked_by_id,
+                "locked_by_username": order.locked_by.username if order.locked_by else "",
+                "lock_expires_at": order.lock_expires_at,
+            }
+
+            for item in order.items.all():
+                p = item.product
+                if not p:
+                    continue
+
+                if p.id not in products:
+                    products[p.id] = {
+                        "product_id": p.id,
+                        "name": p.name,
+                        "sku": getattr(p, "sku", "") or "",
+                        "barcode": "",
+                        "purchase_unit": item.purchase_unit or "boxes",
+                        "amount_boxes": getattr(p, "amount_boxes", 0) or 0,
+                        "total": 0,
+                        "markets": {},
+                    }
+
+                barcode_obj = ProductBarcode.objects.filter(product_id=p.id).only("code").first()
+                if barcode_obj and not products[p.id]["barcode"]:
+                    products[p.id]["barcode"] = barcode_obj.code
+
+                qty = int(item.quantity_units or 0)
+                products[p.id]["markets"][str(market_id)] = {
+                    "market_id": market_id,
+                    "market_name": market_name,
+                    "order_id": order.id,
+                    "item_id": item.id,
+                    "quantity_units": qty,
+                    "notes": item.notes or "",
+                }
+                products[p.id]["total"] += qty
+
+        markets_list = sorted(markets.values(), key=lambda x: (x["name"] or "").lower())
+        products_list = sorted(products.values(), key=lambda x: (x["name"] or "").lower())
+
+        return Response(
+            {
+                "provider_id": provider_id_int,
+                "provider": provider_id,
+                "provider_name": orders[0].provider.name if orders else "",
+                "markets": markets_list,
+                "products": products_list,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="pivot-save",
+        permission_classes=[permissions.IsAuthenticated, IsMasterUser],
+    )
+    @transaction.atomic
+    def pivot_save(self, request):
+        """
+        Guarda una matriz pivot editada.
+
+        Espera:
+        {
+          "provider_id": 1,
+          "rows": [
+            {
+              "product_id": 10,
+              "markets": {
+                "7": 6,
+                "1": 2
+              }
+            }
+          ]
+        }
+        """
+        provider_id = request.data.get("provider_id")
+        rows = request.data.get("rows", [])
+
+        if not provider_id:
+            return Response(
+                {"success": False, "detail": "provider_id es requerido."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(rows, list):
+            return Response(
+                {"success": False, "detail": "rows debe ser una lista."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            provider_id = int(provider_id)
+        except (TypeError, ValueError):
+            return Response(
+                {"success": False, "detail": "provider_id debe ser entero."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        order_map = {
+            order.market_id: order
+            for order in self.get_queryset()
+            .filter(provider_id=provider_id)
+            .select_related("market", "locked_by")
+            .prefetch_related("items")
+        }
+
+        updated_cells = 0
+
+        for row in rows:
+            try:
+                product_id = int(row.get("product_id"))
+            except (TypeError, ValueError):
+                continue
+
+            markets_data = row.get("markets", {})
+            if not isinstance(markets_data, dict):
+                continue
+
+            for market_id_raw, qty_raw in markets_data.items():
+                try:
+                    market_id = int(market_id_raw)
+                    quantity_units = int(qty_raw or 0)
+                except (TypeError, ValueError):
+                    continue
+
+                order = order_map.get(market_id)
+                if not order:
+                    continue
+
+                order.clear_expired_lock()
+
+                if order.locked_by and order.locked_by_id != request.user.id:
+                    return Response(
+                        {
+                            "success": False,
+                            "detail": "El pedido de la tienda {} está bloqueado por {}.".format(
+                                order.market.name if order.market else market_id,
+                                order.locked_by.username,
+                            ),
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                existing_item = order.items.filter(product_id=product_id).first()
+
+                if quantity_units <= 0:
+                    if existing_item:
+                        existing_item.delete()
+                        updated_cells += 1
+                    continue
+
+                if existing_item:
+                    existing_item.quantity_units = quantity_units
+                    existing_item.purchase_unit = existing_item.purchase_unit or "boxes"
+                    existing_item.save(update_fields=["quantity_units", "purchase_unit", "updated_at"])
+                    updated_cells += 1
+                else:
+                    PurchaseOrderItem.objects.create(
+                        order=order,
+                        product_id=product_id,
+                        quantity_units=quantity_units,
+                        purchase_unit="boxes",
+                        notes="",
+                    )
+                    updated_cells += 1
+
+        return Response(
+            {
+                "success": True,
+                "message": "Pivot guardado correctamente.",
+                "updated_cells": updated_cells,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def _build_grouped_preview_payload(self, orders):
+        provider = orders[0].provider
+        provider_name = provider.name if provider else ""
+        provider_email = provider.email.strip() if provider and provider.email else ""
+        provider_id = provider.id if provider else None
+
+        orders_payload = []
+        totals_by_market = []
+        total_lines = 0
+        total_units = 0
+
+        consolidated_products = defaultdict(
+            lambda: {
+                "product_id": None,
+                "product_name": "",
+                "markets": {},
+                "total_units": 0,
+            }
+        )
+
+        for order in orders:
+            market_name = order.market.name if order.market else "Sin tienda"
+            market_id = order.market.id if order.market else None
+
+            order_items_payload = []
+            order_units = 0
+
+            for item in order.items.all():
+                product_name = item.product.name if item.product else "Producto"
+                quantity_units = int(item.quantity_units or 0)
+
+                order_items_payload.append(
+                    {
+                        "item_id": item.id,
+                        "product_id": item.product_id,
+                        "product_name": product_name,
+                        "quantity_units": quantity_units,
+                        "purchase_unit": item.purchase_unit,
+                        "notes": item.notes or "",
+                    }
+                )
+
+                key = str(item.product_id)
+                consolidated_products[key]["product_id"] = item.product_id
+                consolidated_products[key]["product_name"] = product_name
+                consolidated_products[key]["markets"][str(market_id)] = {
+                    "market_id": market_id,
+                    "market_name": market_name,
+                    "quantity_units": quantity_units,
+                    "order_id": order.id,
+                    "item_id": item.id,
+                }
+                consolidated_products[key]["total_units"] += quantity_units
+
+                order_units += quantity_units
+                total_units += quantity_units
+                total_lines += 1
+
+            orders_payload.append(
+                {
+                    "order_id": order.id,
+                    "market_id": market_id,
+                    "market_name": market_name,
+                    "status": order.status,
+                    "notes": order.notes or "",
+                    "created_at": order.created_at,
+                    "updated_at": order.updated_at,
+                    "sent": bool(order.sent_at),
+                    "sent_at": order.sent_at,
+                    "sent_to_email": order.sent_to_email,
+                    "items": order_items_payload,
+                    "total_lines": len(order_items_payload),
+                    "total_units": order_units,
+                }
+            )
+
+            totals_by_market.append(
+                {
+                    "market_id": market_id,
+                    "market_name": market_name,
+                    "total_lines": len(order_items_payload),
+                    "total_units": order_units,
+                    "order_id": order.id,
+                }
+            )
+
+        consolidated_rows = sorted(
+            consolidated_products.values(),
+            key=lambda row: row["product_name"].lower(),
+        )
+
+        return {
+            "provider_id": provider_id,
+            "provider_name": provider_name,
+            "provider_email": provider_email,
+            "orders_count": len(orders),
+            "orders": orders_payload,
+            "totals": {
+                "lines": total_lines,
+                "units": total_units,
+            },
+            "totals_by_market": totals_by_market,
+            "consolidated_products": consolidated_rows,
+        }
+
+    def _normalize_grouped_send_payload(self, request):
+        """
+        Soporta dos formatos:
+        1) antiguo:
+           {"order_ids": [1,2,3]}
+        2) premium:
+           {
+             "provider_id": 1,
+             "attach_grouped_summary": true,
+             "attach_individual_orders": true,
+             "orders": [
+               {
+                 "order_id": 12,
+                 "notes": "texto",
+                 "items": [
+                   {
+                     "product_id": 5,
+                     "quantity_units": 8,
+                     "purchase_unit": "boxes",
+                     "notes": "..."
+                   }
+                 ]
+               }
+             ]
+           }
+        """
+        data = request.data or {}
+
+        attach_grouped_summary = bool(data.get("attach_grouped_summary", True))
+        attach_individual_orders = bool(data.get("attach_individual_orders", True))
+
+        raw_orders = data.get("orders")
+        raw_order_ids = data.get("order_ids")
+
+        if raw_orders and isinstance(raw_orders, list):
+            try:
+                normalized_orders = []
+                for entry in raw_orders:
+                    order_id = int(entry.get("order_id"))
+                    items = entry.get("items", []) or []
+
+                    normalized_items = []
+                    for item in items:
+                        product_id = int(item.get("product_id"))
+                        quantity_units = int(item.get("quantity_units", 0) or 0)
+                        if quantity_units <= 0:
+                            continue
+
+                        normalized_items.append(
+                            {
+                                "product_id": product_id,
+                                "quantity_units": quantity_units,
+                                "purchase_unit": item.get("purchase_unit") or "boxes",
+                                "notes": item.get("notes") or "",
+                            }
+                        )
+
+                    normalized_orders.append(
+                        {
+                            "order_id": order_id,
+                            "notes": entry.get("notes") or "",
+                            "items": normalized_items,
+                        }
+                    )
+
+                return {
+                    "mode": "edited_orders",
+                    "provider_id": data.get("provider_id"),
+                    "orders": normalized_orders,
+                    "order_ids": [entry["order_id"] for entry in normalized_orders],
+                    "attach_grouped_summary": attach_grouped_summary,
+                    "attach_individual_orders": attach_individual_orders,
+                }
+            except Exception:
+                raise ValueError("El payload 'orders' no tiene el formato correcto.")
+
+        if not isinstance(raw_order_ids, list) or not raw_order_ids:
+            raise ValueError("Debes enviar 'order_ids' o 'orders'.")
+
+        try:
+            normalized_ids = [int(x) for x in raw_order_ids]
+        except (TypeError, ValueError):
+            raise ValueError("Todos los 'order_ids' deben ser enteros.")
+
+        return {
+            "mode": "order_ids_only",
+            "provider_id": data.get("provider_id"),
+            "orders": [],
+            "order_ids": normalized_ids,
+            "attach_grouped_summary": attach_grouped_summary,
+            "attach_individual_orders": attach_individual_orders,
+        }
+
+    def _apply_grouped_edits_to_orders(self, orders, edited_orders_payload, acting_user):
+        """
+        Persiste las correcciones premium antes de exportar/enviar.
+        """
+        orders_by_id = {order.id: order for order in orders}
+
+        for payload in edited_orders_payload:
+            order = orders_by_id.get(payload["order_id"])
+            if not order:
+                raise ValueError("Pedido no encontrado: {}".format(payload["order_id"]))
+
+            if order.is_locked and order.locked_by_id and order.locked_by_id != acting_user.id:
+                raise ValueError(
+                    "El pedido #{} está bloqueado por {}.".format(
+                        order.id,
+                        order.locked_by.username,
+                    )
+                )
+
+            order.notes = payload.get("notes", "") or ""
+            order.save(update_fields=["notes", "updated_at"])
+
+            items_payload = payload.get("items", []) or []
+
+            consolidated = defaultdict(lambda: {"quantity_units": 0, "purchase_unit": "boxes", "notes": ""})
+
+            for item in items_payload:
+                product_id = int(item["product_id"])
+                quantity_units = int(item["quantity_units"] or 0)
+                purchase_unit = item.get("purchase_unit") or "boxes"
+                notes = item.get("notes") or ""
+
+                if quantity_units <= 0:
+                    continue
+
+                product_exists = Product.objects.filter(id=product_id).exists()
+                if not product_exists:
+                    raise ValueError("Producto no encontrado: {}".format(product_id))
+
+                key = (product_id, purchase_unit)
+                consolidated[key]["quantity_units"] += quantity_units
+                consolidated[key]["purchase_unit"] = purchase_unit
+                consolidated[key]["notes"] = notes
+
+            order.items.all().delete()
+
+            for (product_id, purchase_unit), item_data in consolidated.items():
+                PurchaseOrderItem.objects.create(
+                    order=order,
+                    product_id=product_id,
+                    quantity_units=item_data["quantity_units"],
+                    purchase_unit=purchase_unit,
+                    notes=item_data["notes"],
+                )
+
+        refreshed_orders = list(
+            self.get_queryset()
+            .filter(id__in=[order.id for order in orders])
+            .select_related("provider", "market")
+            .prefetch_related("items__product")
+            .order_by("market__name", "created_at")
+        )
+
+        return refreshed_orders
 
     @action(detail=True, methods=["get"], url_path="export-excel")
     def export_excel(self, request, pk=None):
@@ -39,46 +633,352 @@ class PurchaseOrderViewSet(OrganizationQuerySetMixin, OrganizationPermissionMixi
             file_data.getvalue(),
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-        response["Content-Disposition"] = f'attachment; filename="pedido_{order.id}.xlsx"'
+        response["Content-Disposition"] = 'attachment; filename="pedido_{}.xlsx"'.format(order.id)
         return response
 
-    @action(detail=True, methods=["post"], url_path="send-to-provider")
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="master-summary",
+        permission_classes=[permissions.IsAuthenticated, IsMasterUser],
+    )
+    def master_summary(self, request):
+        """
+        Resumen master por mercados para un proveedor y una fecha.
+        Devuelve una fila por market indicando si ha pedido o no.
+        """
+        date_str = request.query_params.get("date")
+        provider_id = request.query_params.get("provider")
+
+        if not provider_id:
+            return Response(
+                {"detail": "El parámetro 'provider' es requerido."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            provider_id_int = int(provider_id)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "El parámetro 'provider' debe ser un entero."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if date_str:
+            try:
+                selected_date = datetime.date.fromisoformat(date_str)
+            except ValueError:
+                return Response(
+                    {"detail": "El parámetro 'date' no tiene el formato correcto (YYYY-MM-DD)."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            selected_date = timezone.now().date()
+
+        markets = Market.objects.all().order_by("name")
+
+        orders_qs = (
+            self.get_queryset()
+            .filter(
+                provider_id=provider_id_int,
+                created_at__date=selected_date,
+            )
+            .select_related("provider", "market", "locked_by")
+            .prefetch_related("items")
+            .order_by("-created_at")
+        )
+
+        orders_by_market = {}
+        for order in orders_qs:
+            order.clear_expired_lock(save=False)
+            if order.market_id and order.market_id not in orders_by_market:
+                orders_by_market[order.market_id] = order
+
+        data = []
+        for market in markets:
+            order = orders_by_market.get(market.id)
+
+            if order:
+                data.append(
+                    {
+                        "market_id": market.id,
+                        "market_name": market.name,
+                        "has_order": True,
+                        "order_id": order.id,
+                        "provider_id": order.provider_id,
+                        "provider_name": order.provider.name if order.provider else "",
+                        "status": order.status,
+                        "sent": bool(order.sent_at),
+                        "sent_at": order.sent_at,
+                        "sent_to_email": order.sent_to_email,
+                        "total_items": order.items.count(),
+                        "created_at": order.created_at,
+                        "updated_at": order.updated_at,
+                        "is_locked": order.is_locked,
+                        "locked_by": order.locked_by_id,
+                        "locked_by_username": order.locked_by.username if order.locked_by else "",
+                        "lock_expires_at": order.lock_expires_at,
+                    }
+                )
+            else:
+                data.append(
+                    {
+                        "market_id": market.id,
+                        "market_name": market.name,
+                        "has_order": False,
+                        "order_id": None,
+                        "provider_id": provider_id_int,
+                        "provider_name": "",
+                        "status": None,
+                        "sent": False,
+                        "sent_at": None,
+                        "sent_to_email": "",
+                        "total_items": 0,
+                        "created_at": None,
+                        "updated_at": None,
+                        "is_locked": False,
+                        "locked_by": None,
+                        "locked_by_username": "",
+                        "lock_expires_at": None,
+                    }
+                )
+
+        return Response(data, status=status.HTTP_200_OK)
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="preview-grouped",
+        permission_classes=[permissions.IsAuthenticated, IsMasterUser],
+    )
+    def preview_grouped(self, request):
+        """
+        Previsualiza varios pedidos del mismo proveedor sin enviarlos.
+        """
+        order_ids = request.data.get("order_ids", [])
+
+        if not isinstance(order_ids, list) or not order_ids:
+            return Response(
+                {"success": False, "detail": "Debes enviar 'order_ids' como lista no vacía."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            normalized_ids = [int(x) for x in order_ids]
+        except (TypeError, ValueError):
+            return Response(
+                {"success": False, "detail": "Todos los 'order_ids' deben ser enteros."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        orders = list(
+            self.get_queryset()
+            .filter(id__in=normalized_ids)
+            .select_related("provider", "market")
+            .prefetch_related("items__product")
+            .order_by("market__name", "created_at")
+        )
+
+        if not orders:
+            return Response(
+                {"success": False, "detail": "No se encontraron pedidos para previsualizar."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        found_ids = {order.id for order in orders}
+        missing_ids = [oid for oid in normalized_ids if oid not in found_ids]
+        if missing_ids:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "No se encontraron estos pedidos: {}".format(", ".join(map(str, missing_ids))),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        provider_ids = {order.provider_id for order in orders}
+        if len(provider_ids) > 1:
+            return Response(
+                {"success": False, "detail": "Solo puedes previsualizar juntos pedidos del mismo proveedor."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payload = self._build_grouped_preview_payload(orders)
+
+        return Response(
+            {
+                "success": True,
+                "preview": payload,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="send-to-provider",
+        permission_classes=[permissions.IsAuthenticated, IsMasterUser],
+    )
     def send_to_provider(self, request, pk=None):
         """Envía la orden al proveedor por email con Excel y PDF adjuntos."""
         order = self.get_object()
 
-        if not order.provider:
+        try:
+            recipient = self._send_single_order_email(order, request.user)
+
             return Response(
-                {"success": False, "detail": "La orden no tiene proveedor asociado."},
+                {
+                    "success": True,
+                    "message": "Pedido enviado correctamente a {}".format(recipient),
+                    "order_id": order.id,
+                    "provider": order.provider.name if order.provider else "",
+                    "email": recipient,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except ValueError as exc:
+            return Response(
+                {"success": False, "detail": str(exc)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if not order.provider.email:
+        except Exception as exc:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Error enviando email al proveedor: {}".format(str(exc)),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="send-grouped",
+        permission_classes=[permissions.IsAuthenticated, IsMasterUser],
+    )
+    @transaction.atomic
+    def send_grouped(self, request):
+        """
+        Envía varios pedidos del mismo proveedor en un único correo.
+        Premium:
+        - puede recibir order_ids
+        - o recibir orders editados y persistirlos antes de enviar
+        - adjunta consolidado Excel/PDF
+        - opcionalmente adjunta también los individuales
+        """
+        try:
+            normalized = self._normalize_grouped_send_payload(request)
+        except ValueError as exc:
+            return Response(
+                {"success": False, "detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        order_ids = normalized["order_ids"]
+
+        orders = list(
+            self.get_queryset()
+            .filter(id__in=order_ids)
+            .select_related("provider", "market", "locked_by")
+            .prefetch_related("items__product")
+            .order_by("market__name", "created_at")
+        )
+
+        if not orders:
+            return Response(
+                {"success": False, "detail": "No se encontraron pedidos para enviar."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        found_ids = {order.id for order in orders}
+        missing_ids = [oid for oid in order_ids if oid not in found_ids]
+        if missing_ids:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "No se encontraron estos pedidos: {}".format(", ".join(map(str, missing_ids))),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        provider_ids = {order.provider_id for order in orders}
+        if len(provider_ids) > 1:
+            return Response(
+                {"success": False, "detail": "Solo puedes enviar juntos pedidos del mismo proveedor."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        provider = orders[0].provider
+        if not provider:
+            return Response(
+                {"success": False, "detail": "Los pedidos no tienen proveedor asociado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not provider.email:
             return Response(
                 {"success": False, "detail": "El proveedor no tiene email configurado."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        recipient = order.provider.email.strip()
+        provider_id_from_payload = normalized.get("provider_id")
+        if provider_id_from_payload and int(provider_id_from_payload) != provider.id:
+            return Response(
+                {"success": False, "detail": "El provider_id del payload no coincide con los pedidos enviados."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        for order in orders:
+            order.clear_expired_lock()
+            if order.locked_by and order.locked_by_id != request.user.id:
+                return Response(
+                    {
+                        "success": False,
+                        "detail": "El pedido #{} está bloqueado por {}.".format(order.id, order.locked_by.username),
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
 
         try:
-            excel_file = build_purchase_order_excel(order)
-            pdf_file = build_purchase_order_pdf(order)
+            if normalized["mode"] == "edited_orders":
+                orders = self._apply_grouped_edits_to_orders(
+                    orders=orders,
+                    edited_orders_payload=normalized["orders"],
+                    acting_user=request.user,
+                )
 
-            provider_name = order.provider.name or "Proveedor"
-            contact_name = order.provider.contact_person or provider_name
+            recipient = provider.email.strip()
+            provider_name = provider.name or "Proveedor"
+            contact_name = provider.contact_person or provider_name
 
-            subject = f"Pedido de compra #{order.id} - {provider_name}"
-            body = (
-                f"Hola {contact_name},\n\n"
-                f"Adjuntamos el pedido de compra #{order.id} en formato Excel y PDF.\n\n"
-                f"Proveedor: {provider_name}\n"
-                f"Estado: {order.status}\n"
-                f"Fecha pedido: {order.created_at.strftime('%d/%m/%Y %H:%M') if order.created_at else ''}\n"
-                f"Notas: {order.notes or 'Sin notas'}\n\n"
-                f"Saludos,\n"
-                f"Kacha Digital BCN"
+            stores_text = "\n".join(
+                [
+                    "- {} (pedido #{})".format(
+                        order.market.name if order.market else "Sin tienda",
+                        order.id,
+                    )
+                    for order in orders
+                ]
             )
+
+            body = (
+                "Hola {},\n\n"
+                "Adjuntamos un envío agrupado de pedidos para el proveedor {}.\n\n"
+                "Pedidos incluidos:\n"
+                "{}\n\n"
+                "Total pedidos: {}\n\n"
+                "Saludos,\n"
+                "Kacha Digital BCN"
+            ).format(
+                contact_name,
+                provider_name,
+                stores_text,
+                len(orders),
+            )
+
+            subject = "Pedidos agrupados - {} - {} tienda(s)".format(provider_name, len(orders))
 
             email = EmailMessage(
                 subject=subject,
@@ -86,206 +986,310 @@ class PurchaseOrderViewSet(OrganizationQuerySetMixin, OrganizationPermissionMixi
                 to=[recipient],
             )
 
-            email.attach(
-                f"pedido_{order.id}.xlsx",
-                excel_file.getvalue(),
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-            email.attach(
-                f"pedido_{order.id}.pdf",
-                pdf_file.getvalue(),
-                "application/pdf",
-            )
+            if normalized["attach_grouped_summary"]:
+                grouped_excel = build_grouped_purchase_order_excel(orders)
+                grouped_pdf = build_grouped_purchase_order_pdf(orders)
+
+                email.attach(
+                    "pedido_consolidado_{}.xlsx".format(provider_name.replace(" ", "_")),
+                    grouped_excel.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+                email.attach(
+                    "pedido_consolidado_{}.pdf".format(provider_name.replace(" ", "_")),
+                    grouped_pdf.getvalue(),
+                    "application/pdf",
+                )
+
+            if normalized["attach_individual_orders"]:
+                for order in orders:
+                    excel_file = build_purchase_order_excel(order)
+                    pdf_file = build_purchase_order_pdf(order)
+
+                    market_slug = (
+                        order.market.name.replace(" ", "_").replace("/", "_")
+                        if order.market and order.market.name
+                        else "sin_tienda"
+                    )
+
+                    email.attach(
+                        "pedido_{}_{}.xlsx".format(order.id, market_slug),
+                        excel_file.getvalue(),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    )
+                    email.attach(
+                        "pedido_{}_{}.pdf".format(order.id, market_slug),
+                        pdf_file.getvalue(),
+                        "application/pdf",
+                    )
 
             email.send(fail_silently=False)
 
-            order.sent_at = timezone.now()
-            order.sent_to_email = recipient
-            order.sent_by = request.user
-
-            if order.status == PurchaseOrder.Status.PLACED:
-                order.status = PurchaseOrder.Status.IN_PROCESS
-
-            order.save(update_fields=["sent_at", "sent_to_email", "sent_by", "status", "updated_at"])
+            for order in orders:
+                self._mark_order_as_sent(order, recipient, request.user)
 
             return Response(
                 {
                     "success": True,
-                    "message": f"Pedido enviado correctamente a {recipient}",
-                    "order_id": order.id,
+                    "message": "Envío agrupado realizado correctamente a {}".format(recipient),
                     "provider": provider_name,
                     "email": recipient,
+                    "orders_sent": [order.id for order in orders],
+                    "stores": [
+                        order.market.name if order.market else "Sin tienda"
+                        for order in orders
+                    ],
+                    "mode": normalized["mode"],
+                    "attach_grouped_summary": normalized["attach_grouped_summary"],
+                    "attach_individual_orders": normalized["attach_individual_orders"],
                 },
                 status=status.HTTP_200_OK,
             )
 
-        except Exception as e:
+        except ValueError as exc:
+            return Response(
+                {"success": False, "detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
             return Response(
                 {
                     "success": False,
-                    "detail": f"Error enviando email al proveedor: {str(e)}",
+                    "detail": "Error enviando el grupo de pedidos: {}".format(str(exc)),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="lock",
+        permission_classes=[permissions.IsAuthenticated, IsMasterUser],
+    )
+    def lock_order(self, request, pk=None):
+        """Bloquea un pedido para edición."""
+        order = self.get_object()
+        order.clear_expired_lock()
+
+        if order.locked_by and order.locked_by_id != request.user.id:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Este pedido está siendo editado por {}.".format(order.locked_by.username),
+                    "locked_by": order.locked_by.username,
+                    "locked_at": order.locked_at,
+                    "lock_expires_at": order.lock_expires_at,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        try:
+            order.lock(request.user)
+            serializer = self.get_serializer(order)
+            return Response(
+                {
+                    "success": True,
+                    "message": "Pedido bloqueado correctamente.",
+                    "order": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as exc:
+            return Response(
+                {"success": False, "detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="unlock",
+        permission_classes=[permissions.IsAuthenticated, IsMasterUser],
+    )
+    def unlock_order(self, request, pk=None):
+        """Libera el bloqueo del pedido."""
+        order = self.get_object()
+        order.clear_expired_lock()
+
+        if not order.locked_by:
+            serializer = self.get_serializer(order)
+            return Response(
+                {
+                    "success": True,
+                    "message": "El pedido ya estaba desbloqueado.",
+                    "order": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        if order.locked_by_id != request.user.id:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Solo {} puede liberar este bloqueo.".format(order.locked_by.username),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        order.unlock(request.user)
+        serializer = self.get_serializer(order)
+        return Response(
+            {
+                "success": True,
+                "message": "Pedido desbloqueado correctamente.",
+                "order": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
     @action(detail=False, methods=["get"], url_path="has-ordered-today")
     def has_ordered_today(self, request):
-        """Retorna si el usuario actual ha creado al menos una orden hoy.
-
-        Respuesta: {"has_ordered_today": true|false}
-        """
+        """Retorna si el usuario actual ha creado al menos una orden hoy."""
         today = timezone.now().date()
         qs = PurchaseOrder.objects.filter(
             ordered_by=request.user,
             created_at__date=today,
         )
+
         provider_id = request.query_params.get("provider")
         if provider_id is not None:
-            # Validación básica de entero
             try:
                 provider_id_int = int(provider_id)
             except (TypeError, ValueError):
                 return Response(
-                    {"detail": "El parámetro 'provider' debe ser un entero."}, 
-                    status=status.HTTP_400_BAD_REQUEST
+                    {"detail": "El parámetro 'provider' debe ser un entero."},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
             qs = qs.filter(provider_id=provider_id_int)
-        has_order = qs.exists()
-        return Response({"has_ordered_today": has_order})
+
+        return Response({"has_ordered_today": qs.exists()})
 
     @action(detail=False, methods=["get"], url_path="by-day")
     def by_day(self, request):
-        """Lista órdenes por día exacto usando ?date=YYYY-MM-DD.
-
-        Si no existen órdenes para el día, devuelve un mensaje en lugar de una lista vacía.
-        """
+        """Lista órdenes por día exacto usando ?date=YYYY-MM-DD."""
         date_str = request.query_params.get("date")
         if not date_str:
             return Response(
                 {"detail": "El parámetro 'date' es requerido."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        try:
-            d = datetime.date.fromisoformat(date_str)
-        except ValueError:
-            return Response(
-                {"detail": "El parámetro 'date' no tiene el formato correcto (YYYY-MM-DD)."}, 
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        base_qs = self.get_queryset().filter(created_at__date=d, status=PurchaseOrder.Status.DRAFT)
-        # Filtro opcional por proveedor: ?provider=<id>
+        try:
+            selected_date = datetime.date.fromisoformat(date_str)
+        except ValueError:
+            return Response(
+                {"detail": "El parámetro 'date' no tiene el formato correcto (YYYY-MM-DD)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        base_qs = self.get_queryset().filter(
+            created_at__date=selected_date,
+            status=PurchaseOrder.Status.DRAFT,
+        )
+
         provider_id = request.query_params.get("provider")
         if provider_id is not None:
             try:
                 provider_id_int = int(provider_id)
             except (TypeError, ValueError):
                 return Response(
-                    {"detail": "El parámetro 'provider' debe ser un entero."}, 
-                    status=status.HTTP_400_BAD_REQUEST
+                    {"detail": "El parámetro 'provider' debe ser un entero."},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
             base_qs = base_qs.filter(provider_id=provider_id_int)
 
         queryset = self.filter_queryset(base_qs.order_by("-created_at"))
 
-        # Si no hay ninguna orden para ese día
         if not queryset.exists():
             return Response(
-                {"detail": "No existen órdenes para el día seleccionado."}, 
-                status=status.HTTP_200_OK
+                {"detail": "No existen órdenes para el día seleccionado."},
+                status=status.HTTP_200_OK,
             )
 
-        # Tomar la más reciente y devolver un único objeto
         obj = queryset.first()
         serializer = self.get_serializer(obj)
         return Response(serializer.data)
 
     @action(detail=False, methods=["post"], url_path="received-products")
     def received_products(self, request):
-        """Recibe una lista de productos recibidos y devuelve los productos
-        de la última orden SHIPPED del usuario autenticado para un proveedor,
-        marcando cuáles se recibieron y cuáles faltan.
-
-        Entrada:
-        - Query param: provider=<id>
-        - Body JSON: {"products": [<product_id o barcode>, ...]}
-
-        Respuesta: lista de objetos con
-        { id, name, quantity_units, received: bool, missing: bool }
+        """
+        Recibe una lista de productos recibidos y devuelve los productos
+        de la última orden SHIPPED del usuario autenticado para un proveedor.
         """
         provider_id = request.query_params.get("provider")
         if provider_id is None:
             return Response(
-                {"detail": "El parámetro 'provider' es requerido."}, 
-                status=status.HTTP_400_BAD_REQUEST
+                {"detail": "El parámetro 'provider' es requerido."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
+
         try:
             provider_id_int = int(provider_id)
         except (TypeError, ValueError):
             return Response(
-                {"detail": "El parámetro 'provider' debe ser un entero."}, 
-                status=status.HTTP_400_BAD_REQUEST
+                {"detail": "El parámetro 'provider' debe ser un entero."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Obtener última orden SHIPPED del usuario y proveedor
         po_qs = (
             self.get_queryset()
             .filter(
-                status=PurchaseOrder.Status.SHIPPED, 
-                ordered_by=request.user, 
-                provider_id=provider_id_int
+                status=PurchaseOrder.Status.SHIPPED,
+                ordered_by=request.user,
+                provider_id=provider_id_int,
             )
             .order_by("-updated_at", "-created_at")
         )
+
         if not po_qs.exists():
             return Response(
-                {"detail": "No existen órdenes enviadas para este proveedor."}, 
-                status=status.HTTP_200_OK
+                {"detail": "No existen órdenes enviadas para este proveedor."},
+                status=status.HTTP_200_OK,
             )
+
         po = po_qs.first()
 
-        # Construir set de productos recibidos a partir del payload (IDs o barcodes)
         payload_list = request.data.get("products", []) or []
-        received_ids: set[int] = set()
         if not isinstance(payload_list, (list, tuple)):
             return Response(
-                {"detail": "El cuerpo debe incluir 'products' como lista."}, 
-                status=status.HTTP_400_BAD_REQUEST
+                {"detail": "El cuerpo debe incluir 'products' como lista."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Resolver entradas: si es entero -> product_id; si es string -> intentar como barcode
-        for entry in payload_list:
-            # Intentar convertir a int para tratar como product_id
-            pid = None
-            if isinstance(entry, int):
-                pid = entry
-            else:
-                # Podría venir como string de número o un barcode alfanumérico
-                if isinstance(entry, str):
-                    try:
-                        pid = int(entry)
-                    except (TypeError, ValueError):
-                        # Buscar por barcode exacto
-                        bc = ProductBarcode.objects.filter(code=entry).only("product_id").first()
-                        if bc:
-                            pid = bc.product_id
-            if pid is not None:
-                received_ids.add(int(pid))
+        received_ids = set()
 
-        # Recorrer los productos de la orden
+        for entry in payload_list:
+            product_id = None
+
+            if isinstance(entry, int):
+                product_id = entry
+            elif isinstance(entry, str):
+                try:
+                    product_id = int(entry)
+                except (TypeError, ValueError):
+                    barcode = ProductBarcode.objects.filter(code=entry).only("product_id").first()
+                    if barcode:
+                        product_id = barcode.product_id
+
+            if product_id is not None:
+                received_ids.add(int(product_id))
+
         items = (
             PurchaseOrderItem.objects.select_related("product")
             .filter(order=po)
             .order_by("product__name")
         )
+
         result = []
-        for it in items:
-            pid = it.product_id
-            is_received = pid in received_ids
+        for item in items:
+            product_id = item.product_id
+            is_received = product_id in received_ids
+
             result.append(
                 {
-                    "id": pid,
-                    "name": it.product.name,
-                    "quantity_units": it.quantity_units,
+                    "id": product_id,
+                    "name": item.product.name,
+                    "quantity_units": item.quantity_units,
                     "received": is_received,
                     "missing": not is_received,
                 }
@@ -295,42 +1299,45 @@ class PurchaseOrderViewSet(OrganizationQuerySetMixin, OrganizationPermissionMixi
 
     @action(detail=False, methods=["get"], url_path="last-shipped")
     def last_shipped(self, request):
-        """Devuelve la última orden en estado SHIPPED.
-
-        Si no existe ninguna, devuelve un mensaje informativo con HTTP 200.
-        """
+        """Devuelve la última orden en estado SHIPPED."""
         qs = self.get_queryset().filter(
-            status=PurchaseOrder.Status.SHIPPED, 
-            ordered_by=request.user
+            status=PurchaseOrder.Status.SHIPPED,
+            ordered_by=request.user,
         )
-        # Filtro opcional por proveedor: ?provider=<id>
+
         provider_id = request.query_params.get("provider")
         if provider_id is not None:
             try:
                 provider_id_int = int(provider_id)
             except (TypeError, ValueError):
                 return Response(
-                    {"detail": "El parámetro 'provider' debe ser un entero."}, 
-                    status=status.HTTP_400_BAD_REQUEST
+                    {"detail": "El parámetro 'provider' debe ser un entero."},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
             qs = qs.filter(provider_id=provider_id_int)
 
         qs = qs.order_by("-updated_at", "-created_at")
+
         if not qs.exists():
             return Response(
-                {"detail": "No existen órdenes enviadas."}, 
-                status=status.HTTP_200_OK
+                {"detail": "No existen órdenes enviadas."},
+                status=status.HTTP_200_OK,
             )
+
         obj = qs.first()
         serializer = self.get_serializer(obj)
         return Response(serializer.data)
 
 
-class PurchaseOrderItemViewSet(OrganizationQuerySetMixin, OrganizationPermissionMixin, viewsets.ModelViewSet):
+class PurchaseOrderItemViewSet(
+    OrganizationQuerySetMixin,
+    OrganizationPermissionMixin,
+    viewsets.ModelViewSet,
+):
     """ViewSet para items de órdenes de compra con filtrado automático por organización."""
-    
+
     queryset = PurchaseOrderItem.objects.select_related("order", "product").all()
     serializer_class = PurchaseOrderItemSerializer
     permission_classes = [permissions.IsAuthenticated]
     http_method_names = ["get", "post", "put", "patch", "head", "options"]
-    organization_field_path = 'order__market__organization'  # PurchaseOrderItem -> PurchaseOrder -> Market -> Organization
+    organization_field_path = "order__market__organization"

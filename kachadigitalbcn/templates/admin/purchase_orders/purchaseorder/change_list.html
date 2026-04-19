@@ -1,0 +1,18 @@
+{% extends "admin/change_list.html" %}
+{% block object-tools-items %}
+  {% if consolidar_url %}
+    <li>
+      <a href="{{ consolidar_url }}" class="addlink" style="background:#1e3a5f;">
+        📦 Consolidar y enviar
+      </a>
+    </li>
+  {% endif %}
+  {% if pivot_url %}
+    <li>
+      <a href="{{ pivot_url }}" class="addlink" style="background:#10b981;">
+        {{ pivot_button_label|default:"Resumen por tiendas" }}
+      </a>
+    </li>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

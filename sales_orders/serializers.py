@@ -1,4 +1,5 @@
 from rest_framework import serializers
+
 from .models import CustomerOrder, CustomerOrderItem, DeliveryRoute
 
 
@@ -15,6 +16,7 @@ class DeliveryRouteSerializer(serializers.ModelSerializer):
             "driver_name",
             "max_packages",
             "is_active",
+            "status",
             "created_at",
             "orders_count",
             "total_packages",
@@ -40,11 +42,10 @@ class CustomerOrderItemSerializer(serializers.ModelSerializer):
             "created_at",
         ]
 
-
 class CustomerOrderSerializer(serializers.ModelSerializer):
     client_name = serializers.CharField(source="client.name", read_only=True)
     items = CustomerOrderItemSerializer(many=True, read_only=True)
-    route_name = serializers.CharField(source="route.name", read_only=True)
+    route_name = serializers.SerializerMethodField()
 
     class Meta:
         model = CustomerOrder
@@ -59,11 +60,18 @@ class CustomerOrderSerializer(serializers.ModelSerializer):
             "delivery_address",
             "delivery_notes",
             "delivery_zone",
+            "delivery_street_type",
+            "delivery_street_name",
+            "delivery_street_number",
+            "delivery_floor",
+            "delivery_postal_code",
+            "delivery_date",
             "delivery_time_from",
             "delivery_time_to",
             "delivery_packages",
             "route",
             "route_name",
+            "route_order",
             "notes",
             "scheduled_for",
             "created_at",
@@ -77,3 +85,12 @@ class CustomerOrderSerializer(serializers.ModelSerializer):
             "delivery_signature",
             "delivery_photo",
         ]
+
+    def get_route_name(self, obj):
+        return obj.route.name if obj.route else None
+
+
+
+
+
+

@@ -32,7 +32,7 @@ class ProviderUploadForm(forms.ModelForm):
 
     class Meta:
         model = Provider
-        fields = ("name", "organization", "order_deadline_time", "order_available_weekdays")
+        fields = ("name", "organization", "email", "order_deadline_time", "order_available_weekdays")
 
 
 class PurchaseOrderInline(admin.TabularInline):
@@ -46,11 +46,11 @@ class PurchaseOrderInline(admin.TabularInline):
 
 @admin.register(Provider)
 class ProviderAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "organization", "order_deadline_time", "get_weekdays_display", "last_po_id", "last_po_status", "pivot_link")
+    list_display = ("id", "name", "organization", "email", "order_deadline_time", "get_weekdays_display", "last_po_id", "last_po_status", "pivot_link")
     search_fields = ("name",)
     list_filter = ("organization",)
     ordering = ("name",)
-    fields = ("name", "organization", "order_deadline_time", "order_available_weekdays", "products_excel", "pivot_link")
+    fields = ("name", "organization", "email", "order_deadline_time", "order_available_weekdays", "products_excel", "pivot_link")
     form = ProviderUploadForm
     inlines = [PurchaseOrderInline]
     readonly_fields = ("pivot_link",)

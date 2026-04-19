@@ -1,0 +1,12 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+  {% if pivot_url %}
+    <li>
+      <a href="{{ pivot_url }}" class="addlink" style="background:#10b981;">
+        {{ pivot_button_label|default:"Resumen por tiendas" }}
+      </a>
+    </li>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

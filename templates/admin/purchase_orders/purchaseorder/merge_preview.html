@@ -1,0 +1,135 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>Unificación de pedidos seleccionados</h1>
+
+{% if error %}
+  <p style="color:#b91c1c;font-weight:700;">{{ error }}</p>
+{% else %}
+
+<div style="margin-bottom:20px;padding:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;">
+  <p><strong>Proveedor:</strong> {{ provider.name }}
+    {% if provider.email %}
+      <span style="color:#64748b;margin-left:8px;">✉ {{ provider.email }}</span>
+    {% else %}
+      <span style="color:#b91c1c;margin-left:8px;">⚠ Sin email configurado</span>
+    {% endif %}
+  </p>
+  <p><strong>Pedidos incluidos:</strong>
+    {% for order in orders %}
+      <a href="{% url 'admin:purchase_orders_purchaseorder_change' order.id %}" target="_blank">#{{ order.id }}</a>
+      {% if order.market %} · {{ order.market.name }}{% endif %}{% if not forloop.last %}, {% endif %}
+    {% endfor %}
+  </p>
+  <p><strong>Total general:</strong> <span id="grand-total">{{ grand_total }}</span></p>
+</div>
+
+{% if messages %}
+  {% for message in messages %}
+    <div style="padding:12px 16px;margin-bottom:16px;border-radius:8px;
+      {% if message.tags == 'success' %}background:#dcfce7;border:1px solid #16a34a;color:#15803d;
+      {% elif message.tags == 'error' %}background:#fee2e2;border:1px solid #b91c1c;color:#b91c1c;
+      {% else %}background:#fef9c3;border:1px solid #ca8a04;color:#854d0e;{% endif %}">
+      {{ message }}
+    </div>
+  {% endfor %}
+{% endif %}
+
+<form method="post">
+  {% csrf_token %}
+  <input type="hidden" name="ids" value="{{ ids_param }}">
+
+  <div style="overflow:auto;margin-bottom:24px;">
+    <table style="width:100%;border-collapse:collapse;background:white;font-size:14px;">
+      <thead>
+        <tr style="background:#1e3a5f;color:white;">
+          <th style="border:1px solid #334155;padding:10px;text-align:left;min-width:200px;">Producto</th>
+          {% for market_name in markets %}
+            <th style="border:1px solid #334155;padding:10px;text-align:center;min-width:90px;">{{ market_name }}</th>
+          {% endfor %}
+          <th style="border:1px solid #334155;padding:10px;text-align:center;min-width:80px;">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr style="{% cycle 'background:#f8fafc;' 'background:white;' %}">
+            <td style="border:1px solid #ddd;padding:8px;font-weight:600;">
+              {{ row.product_name }}
+              <input type="hidden" name="product_id_{{ forloop.counter }}" value="{{ row.product_id }}">
+            </td>
+            {% for cell in row.cells %}
+              <td style="border:1px solid #ddd;padding:4px;text-align:center;">
+                <input
+                  type="number"
+                  name="qty_{{ row.product_id }}_{{ cell.order_id }}"
+                  value="{{ cell.qty }}"
+                  min="0"
+                  data-row="{{ row.product_id }}"
+                  class="qty-input"
+                  style="width:70px;text-align:center;border:1px solid #cbd5e1;border-radius:6px;padding:4px 6px;font-size:14px;{% if cell.qty > 0 %}background:#f0fdf4;{% else %}background:#f8fafc;color:#94a3b8;{% endif %}"
+                >
+                {% if cell.order_id %}
+                  <input type="hidden" name="order_for_{{ row.product_id }}_{{ cell.order_id }}" value="{{ cell.order_id }}">
+                  <div style="font-size:10px;color:#94a3b8;margin-top:2px;">#{{ cell.order_id }}</div>
+                {% endif %}
+              </td>
+            {% endfor %}
+            <td style="border:1px solid #ddd;padding:8px;text-align:center;font-weight:700;" id="row-total-{{ row.product_id }}">
+              {{ row.total }}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr style="background:#1e3a5f;color:white;font-weight:700;">
+          <t<th style="border:1px solid #334155;padding:10px;text-align:center;">{{ totals_by_market|dictsort:market_name }}</th>h style="border:1px solid #334155;padding:10px;text-align:left;">Totales</th>
+          {% for market_name in markets %}
+            <th style="border:1px solid #334155;padding:10px;text-align:center;">{{ totals_by_market|get_item:market_name|default:"0" }}</th>
+          {% endfor %}
+          <th style="border:1px solid #334155;padding:10px;text-align:center;">{{ grand_total }}</th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <div style="display:flex;gap:12px;flex-wrap:wrap;">
+    <button type="submit" name="action" value="save"
+      style="background:#2563eb;color:white;padding:10px 24px;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">
+      💾 Guardar cambios
+    </button>
+    <button type="submit" name="action" value="save_and_send"
+      style="background:#16a34a;color:white;padding:10px 24px;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;"
+      {% if not provider.email %}disabled title="El proveedor no tiene email configurado"{% endif %}>
+      ✉ Guardar y enviar al proveedor
+    </button>
+    <a href="{% url 'admin:purchase_orders_purchaseorder_changelist' %}"
+      style="background:#64748b;color:white;padding:10px 24px;border-radius:8px;font-size:15px;font-weight:600;text-decoration:none;display:inline-block;">
+      ← Volver
+    </a>
+  </div>
+</form>
+
+<script>
+document.querySelectorAll('.qty-input').forEach(function(input) {
+  input.addEventListener('input', function() {
+    var productId = this.dataset.row;
+    var rowTotal = 0;
+    document.querySelectorAll('.qty-input[data-row="' + productId + '"]').forEach(function(inp) {
+      rowTotal += parseInt(inp.value || 0);
+    });
+    var rowTotalEl = document.getElementById('row-total-' + productId);
+    if (rowTotalEl) rowTotalEl.textContent = rowTotal;
+
+    var grandTotal = 0;
+    document.querySelectorAll('.qty-input').forEach(function(inp) {
+      grandTotal += parseInt(inp.value || 0);
+    });
+    document.getElementById('grand-total').textContent = grandTotal;
+
+    this.style.background = (parseInt(this.value || 0) > 0) ? '#f0fdf4' : '#f8fafc';
+    this.style.color = (parseInt(this.value || 0) > 0) ? '' : '#94a3b8';
+  });
+});
+</script>
+
+{% endif %}
+{% endblock %}

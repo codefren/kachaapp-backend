@@ -3,6 +3,7 @@ from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import admin as auth_admin
 from django.utils.translation import gettext_lazy as _
+from django.utils.html import format_html
 
 from market.models import LoginHistory
 from .forms import UserAdminChangeForm
@@ -20,9 +21,12 @@ if settings.DJANGO_ADMIN_FORCE_ALLAUTH:
 class UserAdmin(auth_admin.UserAdmin):
     form = UserAdminChangeForm
     add_form = UserAdminCreationForm
+
+    readonly_fields = ("photo_preview",)
+
     fieldsets = (
         (None, {"fields": ("username", "password")}),
-        (_("Personal info"), {"fields": ("name", "email")}),
+        (_("Personal info"), {"fields": ("name", "email", "photo", "photo_preview")}),
         (
             _("Organization & Role"),
             {
@@ -46,11 +50,52 @@ class UserAdmin(auth_admin.UserAdmin):
         ),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
     )
-    list_display = ["username", "name", "email", "organization", "role", "is_active", "is_superuser"]
+
+    add_fieldsets = (
+        (
+            None,
+            {
+                "classes": ("wide",),
+                "fields": (
+                    "username",
+                    "email",
+                    "name",
+                    "organization",
+                    "role",
+                    "password1",
+                    "password2",
+                    "is_active",
+                    "is_staff",
+                    "is_superuser",
+                ),
+            },
+        ),
+    )
+
+    list_display = [
+        "id",
+        "username",
+        "name",
+        "email",
+        "organization",
+        "role",
+        "is_active",
+        "is_staff",
+        "is_superuser",
+    ]
     list_filter = ["is_active", "is_staff", "is_superuser", "organization", "role"]
     search_fields = ["username", "name", "email"]
     autocomplete_fields = ["organization"]
 
+    def photo_preview(self, obj):
+        if obj and obj.photo:
+            return format_html(
+                '<img src="{}" style="width:60px;height:60px;border-radius:30px;object-fit:cover;border:1px solid #ddd;" />',
+                obj.photo.url,
+            )
+        return "Sin foto"
+
+    photo_preview.short_description = "Vista previa"
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):

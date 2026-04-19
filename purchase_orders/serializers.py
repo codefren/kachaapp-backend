@@ -9,9 +9,8 @@ from market.models import LoginHistory
 
 class PurchaseOrderItemSerializer(serializers.ModelSerializer):
     """Serializer for purchase order items."""
-    
+
     product_name = serializers.CharField(source="product.name", read_only=True)
-    # Campo editable independiente (write-only). Para salida, lo calculamos desde product.
     amount_boxes = serializers.IntegerField(required=False, write_only=True)
     product_image = serializers.SerializerMethodField()
     purchase_unit = serializers.ChoiceField(choices=["boxes"], required=False)
@@ -33,7 +32,6 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at")
 
     def get_product_image(self, obj):
-        """Get absolute HTTPS URL for product image."""
         product = getattr(obj, "product", None)
         if not product:
             return None
@@ -54,8 +52,6 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
         return abs_url
 
     def create(self, validated_data):
-        """Create a purchase order item and update product amount_boxes if provided."""
-        # Extraer amount_boxes del payload para aplicarlo al Product asociado
         amount_boxes_val = validated_data.pop("amount_boxes", None)
         obj = super().create(validated_data)
         if amount_boxes_val is not None:
@@ -66,7 +62,6 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
         return obj
 
     def update(self, instance, validated_data):
-        """Update a purchase order item and update product amount_boxes if provided."""
         amount_boxes_val = validated_data.pop("amount_boxes", None)
         obj = super().update(instance, validated_data)
         if amount_boxes_val is not None:
@@ -77,9 +72,7 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
         return obj
 
     def to_representation(self, instance):
-        """Include amount_boxes from associated product in output."""
         data = super().to_representation(instance)
-        # Incluir amount_boxes desde el producto asociado en la salida
         try:
             data["amount_boxes"] = int(getattr(instance.product, "amount_boxes", 0) or 0)
         except Exception:
@@ -89,10 +82,15 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
 
 class PurchaseOrderSerializer(serializers.ModelSerializer):
     """Serializer for purchase orders."""
-    
+
     provider_name = serializers.CharField(source="provider.name", read_only=True)
     ordered_by_username = serializers.CharField(source="ordered_by.username", read_only=True)
-    items = PurchaseOrderItemSerializer(many=True)
+    items = PurchaseOrderItemSerializer(many=True, required=False)
+    sent_by_username = serializers.CharField(source="sent_by.username", read_only=True)
+
+    locked_by_username = serializers.CharField(source="locked_by.username", read_only=True)
+    is_locked = serializers.SerializerMethodField()
+    lock_expires_at = serializers.SerializerMethodField()
 
     class Meta:
         model = PurchaseOrder
@@ -106,19 +104,45 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             "notes",
             "market",
             "items",
+            "sent_at",
+            "sent_to_email",
+            "sent_by",
+            "sent_by_username",
+            "locked_by",
+            "locked_by_username",
+            "is_locked",
+            "lock_expires_at",
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "created_at", "updated_at", "ordered_by", "market")
+        read_only_fields = (
+            "id",
+            "ordered_by",
+            "created_at",
+            "updated_at",
+            "sent_at",
+            "sent_to_email",
+            "sent_by",
+            "sent_by_username",
+            "locked_by",
+            "locked_by_username",
+            "is_locked",
+            "lock_expires_at",
+        )
+
+    def get_is_locked(self, obj):
+        obj.clear_expired_lock(save=False)
+        return obj.is_locked
+
+    def get_lock_expires_at(self, obj):
+        obj.clear_expired_lock(save=False)
+        return obj.lock_expires_at
 
     def create(self, validated_data):
-        """Create a purchase order with consolidated items."""
         items_data = validated_data.pop("items", [])
-        # Forzar el creador de la orden desde el request
         request = self.context.get("request")
         if request is not None and not request.user.is_anonymous:
             validated_data["ordered_by"] = request.user
-            # Asignar market desde el último LoginHistory del usuario
             last = (
                 LoginHistory.objects.select_related("market")
                 .filter(user=request.user)
@@ -129,46 +153,40 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             if not last or not last.market_id:
                 raise serializers.ValidationError({"market": "No market found for current user (no login history)."})
             validated_data["market"] = last.market
+
         order = PurchaseOrder.objects.create(**validated_data)
-        
-        # Consolidar por (product_id, purchase_unit="boxes") para respetar la restricción de unicidad
+
         consolidated: dict[tuple[int, str], dict] = {}
         boxes_override_by_product: dict[int, int] = {}
-        
+
         for item in items_data:
             normalized = self._normalize_item(item)
-            # Leer override antes de limpiar
             amt_raw = (item or {}).get("amount_boxes")
-            # 'amount_boxes' NO es campo del modelo PurchaseOrderItem; quitarlo antes de crear
             normalized.pop("amount_boxes", None)
             product_ref = normalized.get("product")
             try:
                 product_id = product_ref.pk if isinstance(product_ref, Product) else int(product_ref)
             except Exception:
-                # Si no se puede resolver, crear directo y seguir
                 if normalized.get("quantity_units", 0) > 0:
                     PurchaseOrderItem.objects.create(order=order, **normalized)
                 continue
-            
+
             key = (product_id, "boxes")
             entry = consolidated.setdefault(key, {"quantity_units": 0, "purchase_unit": "boxes"})
             entry["quantity_units"] += int(normalized.get("quantity_units", 0) or 0)
             if "notes" in normalized:
                 entry["notes"] = normalized["notes"]
-            
-            # Registrar último override por producto si vino
+
             if amt_raw is not None:
                 try:
                     boxes_override_by_product[product_id] = int(amt_raw)
                 except (TypeError, ValueError):
                     pass
-        
-        # Crear items consolidados (solo si quantity_units > 0)
+
         for (pid, _pu), data in consolidated.items():
             if data.get("quantity_units", 0) > 0:
                 PurchaseOrderItem.objects.create(order=order, product_id=pid, **data)
-        
-        # Persistir en Product.amount_boxes si vino amount_boxes en el payload
+
         for pid, final_boxes in boxes_override_by_product.items():
             try:
                 Product.objects.filter(pk=pid).update(amount_boxes=int(final_boxes))
@@ -177,22 +195,25 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         return order
 
     def update(self, instance, validated_data):
-        """Update a purchase order and recreate consolidated items."""
         items_data = validated_data.pop("items", None)
-        # Bloquear cambios de market por payload
         validated_data.pop("market", None)
         validated_data.pop("ordered_by", None)
-        
+
+        request = self.context.get("request")
+        if instance.is_locked and instance.locked_by_id and request and instance.locked_by_id != request.user.id:
+            raise serializers.ValidationError(
+                {"detail": "Este pedido está bloqueado por otro usuario: {}.".format(instance.locked_by.username)}
+            )
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
-        
+
         if items_data is not None:
-            # Borrar todos los ítems y recrear consolidando por producto para respetar unicidad
             instance.items.all().delete()
             consolidated: dict[tuple[int, str], dict] = {}
             boxes_override_by_product: dict[int, int] = {}
-            
+
             for item in items_data:
                 normalized = self._normalize_item(item)
                 amt_raw = (item or {}).get("amount_boxes")
@@ -204,25 +225,23 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
                     if normalized.get("quantity_units", 0) > 0:
                         PurchaseOrderItem.objects.create(order=instance, **normalized)
                     continue
-                
+
                 key = (product_id, "boxes")
                 entry = consolidated.setdefault(key, {"quantity_units": 0, "purchase_unit": "boxes"})
                 entry["quantity_units"] += int(normalized.get("quantity_units", 0) or 0)
                 if "notes" in normalized:
                     entry["notes"] = normalized["notes"]
-                
+
                 if amt_raw is not None:
                     try:
                         boxes_override_by_product[product_id] = int(amt_raw)
                     except (TypeError, ValueError):
                         pass
-            
-            # Crear items consolidados (solo si quantity_units > 0)
+
             for (pid, _pu), data in consolidated.items():
                 if data.get("quantity_units", 0) > 0:
                     PurchaseOrderItem.objects.create(order=instance, product_id=pid, **data)
-            
-            # Persistir en Product.amount_boxes si vino amount_boxes en el payload
+
             for pid, final_boxes in boxes_override_by_product.items():
                 try:
                     Product.objects.filter(pk=pid).update(amount_boxes=int(final_boxes))
@@ -231,16 +250,8 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         return instance
 
     def _normalize_item(self, item: dict) -> dict:
-        """Normaliza el ítem usando únicamente 'purchase_unit'.
-
-        - Convierte quantity_units a int.
-        - Acepta 'purchase_unit' o 'unit_type' en el payload.
-        - Fuerza purchase_unit = "boxes" (único permitido).
-        """
         data = dict(item)
         qty = int(data.get("quantity_units", 0) or 0)
         data["quantity_units"] = qty
-        pu = data.get("purchase_unit") or data.get("unit_type") or "boxes"
-        # Forzar siempre boxes (única opción soportada)
         data["purchase_unit"] = "boxes"
         return data
