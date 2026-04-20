@@ -41,17 +41,19 @@ class ProviderSerializer(OrganizationSerializerMixin, serializers.ModelSerialize
         }
     })
     def get_has_received_orders(self, obj):
-        """Retorna información de la última orden PLACED o DRAFT del proveedor."""
+        """Retorna la ultima orden no enviada del proveedor."""
         from django.db.models import Q
         from purchase_orders.models import PurchaseOrder
         order = PurchaseOrder.objects.filter(
-            provider=obj
+            provider=obj,
+            sent_at__isnull=True
         ).filter(
             Q(status=PurchaseOrder.Status.PLACED) | Q(status=PurchaseOrder.Status.DRAFT)
         ).order_by('-created_at').first()
         return {
             "status": order.status if order else None,
-            "order_id": order.id if order else None
+            "order_id": order.id if order else None,
+            "sent_at": str(order.sent_at) if order and order.sent_at else None,
         }
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
