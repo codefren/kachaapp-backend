@@ -54,6 +54,16 @@ class PurchaseOrderViewSet(
     http_method_names = ["get", "post", "put", "patch", "head", "options"]
     organization_field_path = "market__organization"
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        provider_id = self.request.query_params.get("provider")
+        if provider_id:
+            try:
+                qs = qs.filter(provider_id=int(provider_id))
+            except (TypeError, ValueError):
+                pass
+        return qs
+
     def _build_order_email_body(self, order):
         provider_name = order.provider.name or "Proveedor"
         contact_name = order.provider.contact_person or provider_name
