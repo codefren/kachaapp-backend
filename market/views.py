@@ -325,6 +325,10 @@ def shift_end(request):
 
     shift.end_latitude = latitude if latitude is not None else shift.end_latitude
     shift.end_longitude = longitude if longitude is not None else shift.end_longitude
+
+    shift.close_shift(now=timezone.now())
+    shift.save()
+
     # Enviar email si el usuario tiene configurado el envío
     try:
         profile = request.user.worker_profile
@@ -338,16 +342,22 @@ def shift_end(request):
             from django.core.mail import send_mail
             send_mail(
                 subject=f"Jornada finalizada - {request.user.username}",
-                message=f"Hola {request.user.username},\n\nTu jornada ha finalizado.\n\nTienda: {shift.market.name if shift.market else 'Sin tienda'}\nInicio: {shift.started_at.strftime('%d/%m/%Y %H:%M')}\nFin: {shift.ended_at.strftime('%d/%m/%Y %H:%M')}\nTrabajado: {h_worked:02d}h {m_worked:02d}min\nDescanso: {h_break:02d}h {m_break:02d}min\n\nSaludos,\nKacha Digital BCN",
+                message=(
+                    f"Hola {request.user.username},\n\n"
+                    f"Tu jornada ha finalizado.\n\n"
+                    f"Tienda: {shift.market.name if shift.market else 'Sin tienda'}\n"
+                    f"Inicio: {timezone.localtime(shift.started_at).strftime('%d/%m/%Y %H:%M')}\n"
+                    f"Fin: {timezone.localtime(shift.ended_at).strftime('%d/%m/%Y %H:%M')}\n"
+                    f"Trabajado: {h_worked:02d}h {m_worked:02d}min\n"
+                    f"Descanso: {h_break:02d}h {m_break:02d}min\n\n"
+                    f"Saludos,\nKacha Digital BCN"
+                ),
                 from_email=None,
                 recipient_list=[request.user.email],
                 fail_silently=True,
             )
     except Exception:
         pass
-
-    shift.close_shift(now=timezone.now())
-    shift.save()
 
     return Response(
         {
