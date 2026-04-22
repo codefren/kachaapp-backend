@@ -88,3 +88,28 @@ class VacationPeriod(models.Model):
     @property
     def days_count(self):
         return (self.end_date - self.start_date).days + 1
+
+
+class LaborAbsence(models.Model):
+    class AbsenceType(models.TextChoices):
+        UNJUSTIFIED = "UNJUSTIFIED", "Ausencia injustificada"
+        PERSONAL = "PERSONAL", "Asunto personal"
+        FAMILY = "FAMILY", "Familiar"
+        OTHER = "OTHER", "Otro"
+
+    user = models.ForeignKey(
+        'users.User', on_delete=models.CASCADE, related_name='labor_absences'
+    )
+    absence_type = models.CharField(max_length=20, choices=AbsenceType.choices, default=AbsenceType.OTHER)
+    date = models.DateField()
+    reason = models.TextField(blank=True)
+    approved = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Ausencia laboral'
+        verbose_name_plural = 'Ausencias laborales'
+        ordering = ['-date']
+
+    def __str__(self):
+        return f'Ausencia {self.user.username} - {self.date}'
