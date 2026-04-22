@@ -356,8 +356,9 @@ def shift_end(request):
                 recipient_list=[request.user.email],
                 fail_silently=True,
             )
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f'Email error shift_end: {e}')
 
     return Response(
         {

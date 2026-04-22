@@ -17,6 +17,10 @@ class WorkerProfile(models.Model):
     works_sunday = models.BooleanField(default=False)
     vacation_days_per_year = models.PositiveIntegerField(default=30)
     vacation_days_used = models.PositiveIntegerField(default=0)
+    send_shift_limit_email = models.BooleanField(default=True)
+    send_break_limit_email = models.BooleanField(default=True)
+    send_monthly_report_email = models.BooleanField(default=True)
+    monthly_report_day = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -39,6 +43,10 @@ class WorkerProfile(models.Model):
             return int(float(self.max_morning_shift_hours) * 3600)
         return int(float(self.max_afternoon_shift_hours) * 3600)
 
+    @property
+    def max_break_seconds(self):
+        return self.max_break_minutes * 60
+
 
 class MedicalLeave(models.Model):
     user = models.ForeignKey(
@@ -51,8 +59,8 @@ class MedicalLeave(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        verbose_name = 'Baja médica'
-        verbose_name_plural = 'Bajas médicas'
+        verbose_name = 'Baja medica'
+        verbose_name_plural = 'Bajas medicas'
         ordering = ['-start_date']
 
     def __str__(self):
@@ -70,8 +78,8 @@ class VacationPeriod(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        verbose_name = 'Período de vacaciones'
-        verbose_name_plural = 'Períodos de vacaciones'
+        verbose_name = 'Periodo de vacaciones'
+        verbose_name_plural = 'Periodos de vacaciones'
         ordering = ['-start_date']
 
     def __str__(self):
