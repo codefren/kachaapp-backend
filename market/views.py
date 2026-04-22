@@ -325,6 +325,27 @@ def shift_end(request):
 
     shift.end_latitude = latitude if latitude is not None else shift.end_latitude
     shift.end_longitude = longitude if longitude is not None else shift.end_longitude
+    # Enviar email si el usuario tiene configurado el envío
+    try:
+        profile = request.user.worker_profile
+        if profile.send_shift_limit_email and request.user.email:
+            worked = shift.get_worked_seconds(now=shift.ended_at)
+            breaks = shift.get_break_seconds(now=shift.ended_at)
+            h_worked = worked // 3600
+            m_worked = (worked % 3600) // 60
+            h_break = breaks // 3600
+            m_break = (breaks % 3600) // 60
+            from django.core.mail import send_mail
+            send_mail(
+                subject=f"Jornada finalizada - {request.user.username}",
+                message=f"Hola {request.user.username},\n\nTu jornada ha finalizado.\n\nTienda: {shift.market.name if shift.market else 'Sin tienda'}\nInicio: {shift.started_at.strftime('%d/%m/%Y %H:%M')}\nFin: {shift.ended_at.strftime('%d/%m/%Y %H:%M')}\nTrabajado: {h_worked:02d}h {m_worked:02d}min\nDescanso: {h_break:02d}h {m_break:02d}min\n\nSaludos,\nKacha Digital BCN",
+                from_email=None,
+                recipient_list=[request.user.email],
+                fail_silently=True,
+            )
+    except Exception:
+        pass
+
     shift.close_shift(now=timezone.now())
     shift.save()
 
