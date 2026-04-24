@@ -54,6 +54,23 @@ class PurchaseOrderViewSet(
     http_method_names = ["get", "post", "put", "patch", "head", "options"]
     organization_field_path = "market__organization"
 
+    def perform_update(self, serializer):
+        from market.models import Shift
+        from rest_framework.exceptions import PermissionDenied
+        order = serializer.instance
+        if order.market:
+            active_shift = Shift.objects.filter(
+                user=self.request.user,
+                ended_at__isnull=True,
+            ).select_related("market").first()
+            # Superusuarios y MASTER pueden modificar cualquier pedido
+            if not self.request.user.is_superuser and str(self.request.user.role).upper() != "MASTER":
+                if not active_shift or not active_shift.market:
+                    raise PermissionDenied("No tienes una jornada activa para modificar pedidos.")
+                if active_shift.market.id != order.market.id:
+                    raise PermissionDenied(f"No puedes modificar pedidos de {order.market.name}. Tu jornada activa es en {active_shift.market.name}.")
+        serializer.save()
+
     def get_queryset(self):
         qs = super().get_queryset()
         provider_id = self.request.query_params.get("provider")

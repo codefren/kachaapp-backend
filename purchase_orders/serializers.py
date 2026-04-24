@@ -145,16 +145,27 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if request is not None and not request.user.is_anonymous:
             validated_data["ordered_by"] = request.user
-            last = (
-                LoginHistory.objects.select_related("market")
-                .filter(user=request.user)
-                .order_by("-timestamp")
-                .only("market_id")
-                .first()
-            )
-            if not last or not last.market_id:
-                raise serializers.ValidationError({"market": "No market found for current user (no login history)."})
-            validated_data["market"] = last.market
+            # Usar el shift activo del usuario para asignar el market
+            from market.models import Shift
+            active_shift = Shift.objects.filter(
+                user=request.user,
+                ended_at__isnull=True,
+            ).select_related("market").first()
+
+            if active_shift and active_shift.market:
+                validated_data["market"] = active_shift.market
+            else:
+                # Fallback: último login history
+                last = (
+                    LoginHistory.objects.select_related("market")
+                    .filter(user=request.user)
+                    .order_by("-timestamp")
+                    .only("market_id")
+                    .first()
+                )
+                if not last or not last.market_id:
+                    raise serializers.ValidationError({"market": "No market found for current user (no login history)."})
+                validated_data["market"] = last.market
 
         order = PurchaseOrder.objects.create(**validated_data)
 
