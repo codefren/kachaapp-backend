@@ -180,6 +180,10 @@ class Shift(models.Model):
     break_total_seconds = models.PositiveIntegerField(default=0)
 
     start_latitude = models.FloatField(null=True, blank=True)
+    last_latitude = models.FloatField(null=True, blank=True)
+    last_longitude = models.FloatField(null=True, blank=True)
+    last_location_at = models.DateTimeField(null=True, blank=True)
+    out_of_range_since = models.DateTimeField(null=True, blank=True)
     start_longitude = models.FloatField(null=True, blank=True)
 
     end_latitude = models.FloatField(null=True, blank=True)

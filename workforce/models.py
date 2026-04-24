@@ -17,6 +17,26 @@ class WorkerProfile(models.Model):
     works_sunday = models.BooleanField(default=False)
     vacation_days_per_year = models.PositiveIntegerField(default=30)
     vacation_days_used = models.PositiveIntegerField(default=0)
+    # Horarios por día
+    monday_start = models.TimeField(null=True, blank=True, help_text='Hora inicio lunes')
+    monday_end = models.TimeField(null=True, blank=True)
+    tuesday_start = models.TimeField(null=True, blank=True)
+    tuesday_end = models.TimeField(null=True, blank=True)
+    wednesday_start = models.TimeField(null=True, blank=True)
+    wednesday_end = models.TimeField(null=True, blank=True)
+    thursday_start = models.TimeField(null=True, blank=True)
+    thursday_end = models.TimeField(null=True, blank=True)
+    friday_start = models.TimeField(null=True, blank=True)
+    friday_end = models.TimeField(null=True, blank=True)
+    saturday_start = models.TimeField(null=True, blank=True)
+    saturday_end = models.TimeField(null=True, blank=True)
+    sunday_start = models.TimeField(null=True, blank=True)
+    sunday_end = models.TimeField(null=True, blank=True)
+
+    # Fichaje automático
+    auto_checkin_enabled = models.BooleanField(default=False, help_text='Activar fichaje automatico por ubicacion')
+    checkin_tolerance_minutes = models.PositiveIntegerField(default=15, help_text='Minutos antes del inicio permitidos para fichar')
+
     send_shift_limit_email = models.BooleanField(default=True)
     send_break_limit_email = models.BooleanField(default=True)
     send_monthly_report_email = models.BooleanField(default=True)

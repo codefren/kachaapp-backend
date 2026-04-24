@@ -399,3 +399,12 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB (default is 2.5MB)
 # OPENAI
 # ------------------------------------------------------------------------------
 OPENAI_API_KEY = env("OPENAI_API_KEY", default="")
+
+# Tareas periódicas de market
+from celery.schedules import crontab
+CELERY_BEAT_SCHEDULE = {
+    "check-shifts-location": {
+        "task": "market.tasks.check_shifts_location",
+        "schedule": 300,  # cada 5 minutos
+    },
+}

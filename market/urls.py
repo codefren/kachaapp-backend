@@ -10,6 +10,8 @@ urlpatterns = [
     path("shifts/me/break/start/", views.break_start, name="break_start"),
     path("shifts/me/break/end/", views.break_end, name="break_end"),
     path("shifts/me/calendar/", views.shift_me_calendar, name="shift_me_calendar"),
+    path("shifts/me/location/", views.update_location, name="update_location"),
+    path("shifts/me/check-range/", views.check_range_for_break_end, name="check_range"),
+    path("shifts/me/auto-check/", views.auto_check, name="auto_check"),
     path("temperatures/ocr/", views.temperature_ocr, name="temperature_ocr"),
 ]
-
