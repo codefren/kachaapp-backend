@@ -51,8 +51,22 @@ class PurchaseOrderViewSet(
     )
     serializer_class = PurchaseOrderSerializer
     permission_classes = [permissions.IsAuthenticated]
-    http_method_names = ["get", "post", "put", "patch", "head", "options"]
+    http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
     organization_field_path = "market__organization"
+
+    def perform_destroy(self, instance):
+        from market.models import Shift
+        from rest_framework.exceptions import PermissionDenied
+        if instance.market and not self.request.user.is_superuser and str(self.request.user.role).upper() != "MASTER":
+            active_shift = Shift.objects.filter(
+                user=self.request.user,
+                ended_at__isnull=True,
+            ).select_related("market").first()
+            if not active_shift or not active_shift.market:
+                raise PermissionDenied("No tienes una jornada activa para borrar pedidos.")
+            if active_shift.market.id != instance.market.id:
+                raise PermissionDenied(f"No puedes borrar pedidos de {instance.market.name}.")
+        instance.delete()
 
     def perform_update(self, serializer):
         from market.models import Shift
