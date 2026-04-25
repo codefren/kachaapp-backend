@@ -212,6 +212,33 @@ def shift_start(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    # Verificar horario del trabajador
+    try:
+        profile = request.user.worker_profile
+        local_now = timezone.localtime(timezone.now())
+        day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        day = day_names[local_now.weekday()]
+        start = getattr(profile, f'{day}_start', None)
+        end = getattr(profile, f'{day}_end', None)
+        if start or end:
+            current_time = local_now.time()
+            if end and current_time >= end:
+                return Response({
+                    "success": False,
+                    "message": f"Tu jornada laboral ha terminado. Horario de hoy hasta las {end.strftime('%H:%M')}.",
+                }, status=status.HTTP_400_BAD_REQUEST)
+            if start:
+                from datetime import timedelta
+                tolerance = getattr(profile, 'checkin_tolerance_minutes', 15)
+                start_dt = local_now.replace(hour=start.hour, minute=start.minute, second=0)
+                window_start = (start_dt - timedelta(minutes=tolerance)).time()
+                if current_time < window_start:
+                    return Response({
+                        "success": False,
+                        "message": f"Tu jornada no empieza hasta las {start.strftime('%H:%M')}.",
+                    }, status=status.HTTP_400_BAD_REQUEST)
+    except Exception:
+        pass
     latitude = request.data.get("latitude")
     longitude = request.data.get("longitude")
 
@@ -294,6 +321,20 @@ def break_end(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    # Verificar horario del trabajador
+    try:
+        profile = request.user.worker_profile
+        local_now = timezone.localtime(timezone.now())
+        day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        day = day_names[local_now.weekday()]
+        end = getattr(profile, f'{day}_end', None)
+        if end and local_now.time() >= end:
+            return Response({
+                "success": False,
+                "message": f"Tu jornada laboral ha terminado. Horario de hoy hasta las {end.strftime('%H:%M')}.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+    except Exception:
+        pass
     shift.close_break(now=timezone.now())
     shift.save(update_fields=["break_started_at", "break_total_seconds", "updated_at"])
 
@@ -453,7 +494,7 @@ def _haversine_distance(lat1, lon1, lat2, lon2):
     a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
 
-RANGE_METERS = 50
+RANGE_METERS = 150
 OUT_OF_RANGE_MINUTES = 15
 
 
@@ -592,11 +633,17 @@ def auto_check(request):
         day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
         day = day_names[local_now.weekday()]
         start = getattr(profile, f'{day}_start', None)
+        end = getattr(profile, f'{day}_end', None)
         if not start:
             return False
-        from datetime import datetime, timedelta
+        from datetime import timedelta
         start_dt = local_now.replace(hour=start.hour, minute=start.minute, second=0)
         window_start = start_dt - timedelta(minutes=tolerance)
+        # Verificar que no ha pasado la hora de fin
+        if end:
+            end_dt = local_now.replace(hour=end.hour, minute=end.minute, second=0)
+            if local_now >= end_dt:
+                return False
         return local_now >= window_start
 
     # Si no hay jornada activa

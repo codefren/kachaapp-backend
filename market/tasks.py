@@ -5,7 +5,7 @@ from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
-RANGE_METERS = 50
+RANGE_METERS = 150
 OUT_OF_RANGE_MINUTES = 15
 MAX_NO_LOCATION_MINUTES = 30
 
