@@ -536,6 +536,7 @@ class PurchaseOrderViewSet(
 
         attach_grouped_summary = bool(data.get("attach_grouped_summary", True))
         attach_individual_orders = bool(data.get("attach_individual_orders", True))
+        send_format = data.get("format", "both")
 
         raw_orders = data.get("orders")
         raw_order_ids = data.get("order_ids")
@@ -578,6 +579,7 @@ class PurchaseOrderViewSet(
                     "order_ids": [entry["order_id"] for entry in normalized_orders],
                     "attach_grouped_summary": attach_grouped_summary,
                     "attach_individual_orders": attach_individual_orders,
+                    "send_format": send_format,
                 }
             except Exception:
                 raise ValueError("El payload 'orders' no tiene el formato correcto.")
