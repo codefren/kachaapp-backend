@@ -1043,28 +1043,6 @@ class PurchaseOrderViewSet(
                     "application/pdf",
                 )
 
-            if normalized["attach_individual_orders"]:
-                for order in orders:
-                    excel_file = build_purchase_order_excel(order)
-                    pdf_file = build_purchase_order_pdf(order)
-
-                    market_slug = (
-                        order.market.name.replace(" ", "_").replace("/", "_")
-                        if order.market and order.market.name
-                        else "sin_tienda"
-                    )
-
-                    email.attach(
-                        "pedido_{}_{}.xlsx".format(order.id, market_slug),
-                        excel_file.getvalue(),
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    )
-                    email.attach(
-                        "pedido_{}_{}.pdf".format(order.id, market_slug),
-                        pdf_file.getvalue(),
-                        "application/pdf",
-                    )
-
             email.send(fail_silently=False)
 
             for order in orders:
