@@ -723,8 +723,10 @@ class PurchaseOrderViewSet(
         orders_qs = (
             self.get_queryset()
             .filter(
+            .filter(
                 provider_id=provider_id_int,
-                created_at__date=selected_date,
+            ).filter(
+                __import__("django.db.models", fromlist=["Q"]).Q(created_at__date=selected_date) | __import__("django.db.models", fromlist=["Q"]).Q(updated_at__date=selected_date)
             )
             .select_related("provider", "market", "locked_by")
             .prefetch_related("items")
