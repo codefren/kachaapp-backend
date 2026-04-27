@@ -1031,20 +1031,22 @@ class PurchaseOrderViewSet(
             )
 
             if normalized["attach_grouped_summary"]:
-                grouped_excel = build_grouped_purchase_order_excel(orders)
-                grouped_pdf = build_grouped_purchase_order_pdf(orders)
-
-                email.attach(
-                    "pedido_consolidado_{}.xlsx".format(provider_name.replace(" ", "_")),
-                    grouped_excel.getvalue(),
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-                email.attach(
-                    "pedido_consolidado_{}.pdf".format(provider_name.replace(" ", "_")),
-                    grouped_pdf.getvalue(),
-                    "application/pdf",
-                )
-
+                fmt = normalized.get("send_format", "both")
+                slug = provider_name.replace(" ", "_")
+                if fmt in ("both", "excel"):
+                    grouped_excel = build_grouped_purchase_order_excel(orders)
+                    email.attach(
+                        "pedido_consolidado_{}.xlsx".format(slug),
+                        grouped_excel.getvalue(),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    )
+                if fmt in ("both", "pdf"):
+                    grouped_pdf = build_grouped_purchase_order_pdf(orders)
+                    email.attach(
+                        "pedido_consolidado_{}.pdf".format(slug),
+                        grouped_pdf.getvalue(),
+                        "application/pdf",
+                    )
             email.send(fail_silently=False)
 
             for order in orders:
