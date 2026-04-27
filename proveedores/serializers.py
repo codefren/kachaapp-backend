@@ -41,15 +41,33 @@ class ProviderSerializer(OrganizationSerializerMixin, serializers.ModelSerialize
         }
     })
     def get_has_received_orders(self, obj):
-        """Retorna la ultima orden no enviada del proveedor."""
+        """Retorna la ultima orden no enviada con items del proveedor para el market activo."""
         from django.db.models import Q
         from purchase_orders.models import PurchaseOrder
-        order = PurchaseOrder.objects.filter(
+        request = self.context.get('request')
+        market_filter = {}
+        if request and request.user and not request.user.is_anonymous:
+            user = request.user
+            if not user.is_superuser and str(getattr(user, 'role', '')).upper() != 'MASTER':
+                from market.models import Shift
+                active_shift = Shift.objects.filter(
+                    user=user,
+                    ended_at__isnull=True,
+                ).select_related('market').first()
+                if active_shift and active_shift.market:
+                    market_filter = {'market': active_shift.market}
+        orders_qs = PurchaseOrder.objects.filter(
             provider=obj,
-            sent_at__isnull=True
+            sent_at__isnull=True,
+            **market_filter
         ).filter(
             Q(status=PurchaseOrder.Status.PLACED) | Q(status=PurchaseOrder.Status.DRAFT)
-        ).order_by('-created_at').first()
+        ).order_by('-created_at').prefetch_related('items')
+        order = None
+        for o in orders_qs:
+            if o.items.exists():
+                order = o
+                break
         return {
             "status": order.status if order else None,
             "order_id": order.id if order else None,

@@ -29,6 +29,24 @@ class Organization(models.Model):
         default="",
         help_text="Email de contacto principal"
     )
+    address = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="Dirección",
+    )
+    cif = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+        verbose_name="CIF/NIF",
+    )
+    logo = models.ImageField(
+        upload_to="organization_logos/",
+        blank=True,
+        null=True,
+        verbose_name="Logo",
+    )
     contact_phone = models.CharField(
         max_length=20,
         blank=True,

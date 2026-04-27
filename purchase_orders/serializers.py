@@ -167,7 +167,26 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({"market": "No market found for current user (no login history)."})
                 validated_data["market"] = last.market
 
-        order = PurchaseOrder.objects.create(**validated_data)
+        # Verificar si ya existe un pedido activo para este proveedor y market
+        from django.db.models import Q
+        existing = PurchaseOrder.objects.filter(
+            provider=validated_data.get('provider'),
+            market=validated_data.get('market'),
+            sent_at__isnull=True,
+        ).filter(
+            Q(status=PurchaseOrder.Status.PLACED) | Q(status=PurchaseOrder.Status.DRAFT)
+        ).order_by('-created_at').first()
+
+        if existing:
+            # Reutilizar pedido existente — actualizar ordered_by y market
+            if 'ordered_by' in validated_data:
+                existing.ordered_by = validated_data['ordered_by']
+            if 'market' in validated_data:
+                existing.market = validated_data['market']
+            existing.save(update_fields=['ordered_by', 'market', 'updated_at'])
+            order = existing
+        else:
+            order = PurchaseOrder.objects.create(**validated_data)
 
         consolidated: dict[tuple[int, str], dict] = {}
         boxes_override_by_product: dict[int, int] = {}

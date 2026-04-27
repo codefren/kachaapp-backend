@@ -759,6 +759,7 @@ class PurchaseOrderViewSet(
                         "locked_by": order.locked_by_id,
                         "locked_by_username": order.locked_by.username if order.locked_by else "",
                         "lock_expires_at": order.lock_expires_at,
+                        "ordered_by_username": order.ordered_by.username if order.ordered_by else "",
                     }
                 )
             else:

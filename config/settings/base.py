@@ -405,6 +405,6 @@ from celery.schedules import crontab
 CELERY_BEAT_SCHEDULE = {
     "check-shifts-location": {
         "task": "market.tasks.check_shifts_location",
-        "schedule": 300,  # cada 5 minutos
+        "schedule": 60,  # cada 1 minuto
     },
 }
